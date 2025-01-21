@@ -1,5 +1,5 @@
 gc()
-sample <- ds[n_authors_w_several_inst > 0
+sample_df <- ds[n_authors_w_several_inst > 0
              #& n_y_in_sample >=5
              #  (n_authors_sample > 100 | country == 'FR')
              & entry_year >=1955 
@@ -20,9 +20,9 @@ sample <- ds[n_authors_w_several_inst > 0
   .[, n_obs_univ := .N, by = 'inst_id']
 #rm(ds)
 gc()
-sample <- unique(sample)
+sample_df <- unique(sample_df)
 
-#ggplot(sample[, .(in_supervisor_inst = mean(in_supervisor_inst, na.rm = T),
+#ggplot(sample_df[, .(in_supervisor_inst = mean(in_supervisor_inst, na.rm = T),
 #                  in_referee_inst = mean(in_referee_inst, na.rm = T),
 #                  in_jury_inst = mean(in_jury_inst, na.rm = T))
 #              , by = c('uni_pub','year')])+
@@ -30,14 +30,14 @@ sample <- unique(sample)
 #  geom_line(aes(x=year, y = in_referee_inst, color = as.factor(uni_pub)))+
 #  geom_line(aes(x=year, y = in_jury_inst, color = as.factor(uni_pub)))
   
-nrow(unique(sample[, list(author_id)]))#196848 authors
+nrow(unique(sample_df[, list(author_id)]))#196848 authors
 
-sample <- unique(sample[, ':='(log_cit_w_p =log(citations/publications),
+sample_df <- unique(sample_df[, ':='(log_cit_w_p =log(citations/publications),
                                log_log_cit_w_p = log(log(citations/publications)),
                                log_cit_w_p_raw = log(citations_raw/publications_raw),
                                log_log_cit_w_p_raw = log(log(citations_raw/publications_raw))
 )])
-#summary(sample)
+#summary(sample_df)
 
 formula <- paste0('log(citations) ~ -1',
                  # '+in_supervisor_inst*as.factor(year) + in_referee_inst*as.factor(year) + in_jury_inst*as.factor(year) ',
@@ -46,7 +46,7 @@ formula <- paste0('log(citations) ~ -1',
                   ,'+ main_field^entry_year^year+ fused^year'
 )
 test_brutal <- feols(as.formula(formula) #+ inst_id^author_id
-                     ,data = sample)
+                     ,data = sample_df)
 gc()
 
 fixef_brutal <- fixef(test_brutal#, fixef.iter =  5000
@@ -63,9 +63,9 @@ colnames(fixef_ds_inst_akm) <- c('inst_id_field','fixef_inst_akm')
 fixef_ds_inst_akm <- fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))]
 
 fixef_ds_au <- merge(fixef_ds_au_akm[, ":="(rank_au_akm =frank(fixef_au_akm))],
-                     unique(sample[, list(author_id,author_name, main_field, n_obs_au)]), by = 'author_id', how = 'left')
+                     unique(sample_df[, list(author_id,author_name, main_field, n_obs_au)]), by = 'author_id', how = 'left')
 fixef_ds_inst <- merge(fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))],
-                       unique(sample[, list(inst_id_field, inst_name, country,n_obs_univ)]), by = 'inst_id_field')
+                       unique(sample_df[, list(inst_id_field, inst_name, country,n_obs_univ)]), by = 'inst_id_field')
 test <- fixef_ds_inst[str_detect(inst_id_field, 'econ') & country == 'FR'][, 
 rank_inst_akm := rank_inst_akm/max(rank_inst_akm, na.rm = T)]
 
@@ -82,7 +82,7 @@ ggplot(fixef_ds_au)+
 
 ggplot(fixef_ds_inst)+
   geom_point(aes(x=log(n_obs_univ), y = rank_inst_akm))
-test_inst <- sample[log_cit_w_p>-Inf & inst_id_field %in% c("I57995698econ", 'I2802331213econ',
+test_inst <- sample_df[log_cit_w_p>-Inf & inst_id_field %in% c("I57995698econ", 'I2802331213econ',
                                      "I4210092408econ",'I4210144888econ')][,
 n_inst := n_distinct(inst_id), by = c('author_id','year')][,
 lapply(.SD, mean, na.rm = T), by = c('inst_name','year'), 
@@ -95,22 +95,22 @@ ggplot(test_inst)+
  
 
 
-ggplot(sample[entrant == 1 & log_cit_w_p>-Inf][,
+ggplot(sample_df[entrant == 1 & log_cit_w_p>-Inf][,
               lapply(.SD, mean, na.rm = T), by = c('uni_pub','year'), 
               .SDcols = c('n_inst','publications','publications_raw',
                           'citations','citations_raw','n_obs_au','n_obs_univ',
                           'log_cit_w_p','log_cit_w_p_raw')])+
   geom_line(aes(x=year,y=n_obs_au, color = as.factor(uni_pub)))
 
-ggplot(unique(sample[author_id == 'A5000051438'][, list(author_id, year, publications, citations, citations_raw,publications_raw)]))+
+ggplot(unique(sample_df[author_id == 'A5000051438'][, list(author_id, year, publications, citations, citations_raw,publications_raw)]))+
   geom_line(aes(x=year,y=publications_raw))
 
 
 
-sample <- merge(sample, fixef_ds_au_akm, by ='author_id', all.x = T) 
-sample <- merge(sample, fixef_ds_inst_akm, by ='inst_id_field', all.x = T) 
+sample_df <- merge(sample_df, fixef_ds_au_akm, by ='author_id', all.x = T) 
+sample_df <- merge(sample_df, fixef_ds_inst_akm, by ='inst_id_field', all.x = T) 
 
-sample <- sample %>% .[
+sample_df <- sample_df %>% .[
   , ':='(rank_au_akm_norm = rank_au_akm/max(rank_au_akm, na.rm = T),
          rank_inst_akm_norm = rank_inst_akm/max(rank_inst_akm, na.rm = T)
   ), by = 'main_field'
@@ -135,12 +135,12 @@ fe = paste0("inst_id^main_field "
 )
 formula_ranking = paste0(sub_formula,fe
                         )
-cutoffs <- as.vector(quantile(unique(sample$n_authors_sample), probs = c(0.005,0.995)))
-to_reg <- sample%>%
+cutoffs <- as.vector(quantile(unique(sample_df$n_authors_sample_df), probs = c(0.005,0.995)))
+to_reg <- sample_df%>%
   .[, ":="(lag_pub = lag(publications, order_by = year),
            lag_cit = lag(citations, order_by = year),
-           lag_fe_inst = lag(rank_inst_akm, order_by = year),
-           lag_n_inst = lag(n_inst, order_by = year)
+           lag_fe_inst = lag(rank_inst_akm, order_by = year)#,
+          # lag_n_inst = lag(n_inst, order_by = year)
   ), by = 'author_id']%>%
   .[entrant == 1
     #& n_authors_sample >= 50 & n_authors_sample <= 600
@@ -171,7 +171,7 @@ ggplot(to_reg[!is.na(rank_au_akm_norm) & !is.na(rank_inst_akm_norm)][,
 .(in_supervisor_inst = mean(in_supervisor_inst, na.rm=T)), by = c('uni_pub','year')])+
   geom_line(aes(x=year,y=in_supervisor_inst, color = as.factor(uni_pub)))
 
-plot(sort(unique(sample$n_authors_sample)))
+plot(sort(unique(sample_df$n_authors_sample)))
 plot(sort(unique(to_reg$n_authors_sample)))
 
 test_ranking <- feols(as.formula(formula_ranking),
