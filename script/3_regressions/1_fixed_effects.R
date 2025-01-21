@@ -15,18 +15,27 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
+<<<<<<< HEAD
 inputpath <- "E:\\panel_fr_res\\panel_smoothed_w_theses.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
+=======
+inputpath <- "E:\\panel_fr_res\\panel_smoothed.parquet"
+>>>>>>> parent of c878191 (update_merge_panel)
 ds <- open_dataset(inputpath) 
 ds$schema$names
 
 ds <- open_dataset(inputpath) %>%
+<<<<<<< HEAD
   filter(#all_y_in_FR >= (last_year-entry_year +1)/4
           last_year-entry_year >2
          & entry_year >=1965 
          & year >= 1997
+=======
+  filter(all_y_in_FR >= (last_year-entry_year +1)/4
+         & last_year-entry_year >2
+>>>>>>> parent of c878191 (update_merge_panel)
   ) %>%
   select(author_id, author_name, year,
          publications_raw,citations_raw,  
@@ -38,17 +47,21 @@ ds <- open_dataset(inputpath) %>%
          
          entry_year,country, 
          inst_id, inst_name, inst_type, main_field,
+<<<<<<< HEAD
          period_inst, uni_pub, cnrs, fused, 
          n_inst_y
          ,n_phd_students, in_supervisor_inst, 
          in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
+=======
+         parent, period_inst, uni_pub, cnrs, fused, 
+         n_inst_y#, inst_set_this_year
+>>>>>>> parent of c878191 (update_merge_panel)
          )
 ds <- as.data.table(ds)
 
 ds <- unique(ds)
 #nrow(unique(ds[,list(author_id)])) #197840 w min_period 2 min_y_f 1/2
 #  245495 w min_period 3 min_y_f 1/4
-#   w min_period 3 min_y_f 1/4, filtering entry_year >=65 and year >=97
 
 gc()
 #fields <- c("agri","arts","bioc", "busi","chem", "comp",
@@ -57,6 +70,7 @@ gc()
 #            "neur", "nurs","phar", "phys","psyc", "soci","vete"    
 #)
 #
+<<<<<<< HEAD
 ds <- ds %>%
   .[, ':='(n_inst_id_sample = n_distinct(inst_id),
            main_field = first(main_field, na_rm = TRUE),
@@ -71,6 +85,18 @@ ds <- ds %>%
   .[,field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id']%>%
   .[,max_field_value := max(field_value), by = 'inst_id'] %>%
   .[,main_field_recoded := ifelse(field_value <0.025 | is.na(main_field), max_field, main_field)]
+=======
+ds <- ds[,
+         n_inst_id_sample := n_distinct(inst_id), by = 'author_id'
+][, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
+         n_authors_sample = n_distinct(author_id) ), by = c('inst_id','main_field')][,
+      n_by_field := n_distinct(author_id), by = 'main_field'][,
+      n_y_in_sample := n_distinct(year), by = 'author_id'][,
+      max_field := dplyr::first(ifelse(n_authors_sample == max(n_authors_sample), main_field, NA), na_rm = T),by = "inst_id"][,
+       field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id'][,
+        max_field_value := max(field_value), by = 'inst_id'][,
+        main_field_recoded := ifelse(field_value <0.025 | is.na(main_field), max_field, main_field)]
+>>>>>>> parent of c878191 (update_merge_panel)
 gc()
 
 unique(ds[inst_name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
@@ -111,11 +137,13 @@ iplot(test_brutal,i.select = 1)
 sample_df <- ds[n_authors_w_several_inst > 0
              & n_y_in_sample >=2
              #  (n_authors_sample > 100 | country == 'FR')
+             & entry_year >=1965 
+             & year >= 1997
              & citations >0]%>%
   .[,main_field_recoded := ifelse(max_field_value>=0.4 | is.na(main_field), max_field, main_field_recoded)]%>%
   .[, main_field := main_field_recoded]%>%
   .[,n_authors_sample := n_distinct(author_id), by = c('inst_id','main_field')]%>%
-  .[n_authors_sample >= 5]%>%
+ # .[n_authors_sample >= 5]%>%
   .[ , ':='(n_y_in_sample = n_distinct(year),
           n_obs_au = .N), by = 'author_id']%>%
   .[n_obs_au >=3]%>%
