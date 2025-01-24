@@ -192,7 +192,25 @@ save_plot("E:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
 test <- sample_df[inst_id == "I4210144005"]
 sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
 # regressions -------------------------------------------------------------
-formula <- paste0('avg_rank_source_raw*publications_raw~ 1 + i(year, uni_pub, 2009)| ',
+formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)| ',
+                  ' author_id + inst_id_field '
+                  ,'+ inst_type^year '
+                  ,'+ cnrs^year'
+                  ,'+ fused^year'
+                  ,'+ main_field^entry_cohort^year '
+)
+test_brutal <- feols(as.formula(formula)
+                     ,data = sample_df)
+gc()
+iplot(test_brutal,i.select = 1)
+
+pdf("E:\\panel_fr_res\\productivity_results\\effect_citations.pdf")
+iplot(test_brutal, main = 'Effect on total citations')
+dev.off()
+summary(test_brutal)
+
+formula_agg <- paste0('c(publications_raw, avg_rank_source_raw*publications_raw, citations_raw, nr_source_top_5pct_raw)',
+                  '~ 1 + i(post, uni_pub, 0)| ',
                   ' author_id + inst_id_field '
                   ,'+ inst_type^year '
                   ,'+ cnrs^year'
@@ -200,13 +218,13 @@ formula <- paste0('avg_rank_source_raw*publications_raw~ 1 + i(year, uni_pub, 20
                   ,'+ main_field^year '
                   ,'+entry_cohort^year'
 )
-test_brutal <- feols(as.formula(formula)
-                     ,data = sample_df)
-gc()
-iplot(test_brutal,i.select = 1)
-iplot(test_brutal,i.select = 2)
 
-summary(test_brutal)
+agg_prod <- feols(as.formula(formula_agg)
+                  ,data = sample_df %>%
+                    .[,post := as.numeric(year >=2010)])
+gc()
+etable(agg_prod,file = "E:\\panel_fr_res\\productivity_results\\agg_prod.tex")
+
 
 
 fixef_brutal <- fixef(test_brutal#, fixef.iter =  5000
