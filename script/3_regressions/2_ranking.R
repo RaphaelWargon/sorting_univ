@@ -117,7 +117,7 @@ to_plot <- ranking_data %>%
 
 
 p <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
-        data = to_plot
+        data = to_plot[year <= 2007]
         ,weights = n_authors,
         by = uni_pub, randcut = 1,
         bycolors = c('black','steelblue'),
@@ -131,6 +131,54 @@ p  <- p$bins_plot+
   labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
 
 save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
+
+
+p1 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
+             data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                        uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                        uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                        uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+                                                        )][uni_pub == 'Other']
+             ,weights = n_authors,
+             by = uni_pub_post, randcut = 1,
+             bycolors = c('grey81','black','steelblue1',"steelblue4"),
+             bysymbols = c(16,16, 15,15)
+            )
+
+
+
+p1  <- p1$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')+
+  ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
+
+p1
+p2 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
+             data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                        uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                        uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                        uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+             )][uni_pub == 'University']
+             ,weights = n_authors,
+             by = uni_pub_post, randcut = 1,
+             bycolors = c('steelblue1',"steelblue4"),
+             bysymbols = c(16,16, 15,15)
+            )
+
+
+
+p2  <- p2$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')+
+  ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
+
+p2
+p12 <- plot_grid(p1,p2)
+p12
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post.png", p12)
+
 
 
 ggplot(ranking_data[min_rank_au_akm<Inf  
@@ -355,14 +403,20 @@ formula_ranking = paste0("mean_rank_au_akm ~"
                         ,"+i(year, uni_pub, 2008) "
                         ,"+i(year, uni_pub*rank_inst_akm_norm, 2008)"
                         ,"|"
-                         , "inst_id^main_field+ year+main_field^year+entry_year^year"
+                         , "inst_id^main_field+ year"
+                        , '+ main_field^year'
+                        , '+ inst_type^year'
                         )
 
 test_ranking <- feols(as.formula(formula_ranking),
-                      ranking_data, weights = ranking_data$n_authors)
-iplot(test_ranking)
-iplot(test_ranking,i.select = 2)
-iplot(test_ranking,i.select = 3)
+                      ranking_data
+                      , weights = (ranking_data
+                                   
+                                   )$n_authors
+                      )
+iplot(test_ranking, main = 'Overall ranking')
+iplot(test_ranking,i.select = 2, main = 'Effect on avg author rank of uni')
+iplot(test_ranking,i.select = 3, main = 'Ranking for universities')
 
 etable(test_ranking)
 test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking, 'year', 'post'), "2008", "0")),
@@ -390,7 +444,7 @@ iplot(test_ranking,i.select = 3)
 etable(test_ranking)
 test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking, 'year', 'post'), "2008", "0")),
                       ranking_data[, post:=as.numeric(year>=2009)], weights = ranking_data$n_authors)
-etable(test_ranking, keep =c( 'uni_pub')
+etable(test_ranking
      #  file = "E:\\panel_fr_res\\productivity_results\\ranking.tex"
        )
 
