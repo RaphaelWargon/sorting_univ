@@ -11,21 +11,26 @@ p_load('arrow'
        'cowplot')
 wins_vars <- function(x, pct_level = 0.025){
   if(is.numeric(x)){
-    Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
-    #winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
   } else {x}
 }
 
 
-inputpath <- "E:\\panel_fr_res\\inst_level_flows_cor.parquet"
+inputpath <- "E:\\panel_fr_res\\inst_level_flows.parquet"
 
 ds <- as.data.table(open_dataset(inputpath))
 gc()
 ds <- ds %>%
-  .[, type_r := first(ifelse(type_s != 'abroad' | inst_id_receiver == 'abroad', type_r, NA), na_rm = TRUE), by = 'inst_id_receiver']
+  .[, type_r := first(ifelse(type_s != 'abroad' | inst_id_receiver == 'abroad', type_r, NA), na_rm = TRUE), by = 'inst_id_receiver'] %>%
+  .[, ":="(uni_pub_r = pmax(uni_pub_r, universite_r), 
+           uni_pub_s = pmax(uni_pub_s, universite_s))]
 unique(ds[is.na(type_r)][, list(inst_id_receiver, name_r)])
 
 ds[,.N, by = c('type_r','type_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
+
+ds[,.N, by = c('type_fr_r','type_fr_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
+
 
 cols_to_summarize <- c("total", "stayers", "movers","total_w","stayers_w","movers_w")
 
@@ -172,10 +177,12 @@ setorder(reg_df, unit, year)
 
 cols_to_fill_down_r <-c( "name_r","city_r","fused_r", "uni_pub_r"         
                       ,"cnrs_r","type_r","main_topic_r","topic_share_r","size_r",
-                       "entry_year_r"   )
+                       "entry_year_r", "ecole_r",'universite_r','public_r','prive_r','idex_r'
+                      )
 cols_to_fill_down_s <-c(  "name_s","city_s","fused_s","uni_pub_s", "cnrs_s"            
                          ,"type_s","topic_share_s","size_s", "main_topic_s",   
-                        "entry_year_s"   )
+                        "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','idex_s'
+                        )
 
 unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs')
 cols_to_fill_0 <- c('total','movers','stayers','total_w','movers_w','stayers_w')
@@ -196,6 +203,11 @@ reg_df <- reg_df %>%
            main_topic_s = ifelse(inst_id_sender %in% c('abroad','entrant'), 'undefined', main_topic_s ),
            main_topic_r = ifelse(inst_id_receiver =='abroad', 'undefined', main_topic_r),
            type_s_type_r_year = paste0(type_s, '_',type_r, '_', year)
+  )] %>%
+  .[, ':='( has_idex_r = ifelse(!is.na(idex_r) & idex_r != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  ),
+            has_idex_s = ifelse(!is.na(idex_s) & idex_s != 'no_idex' & !str_detect(idex_s, 'annulee'), 1, 0  ),
+            idex_annulee_r = ifelse(!is.na(idex_r) & str_detect(idex_r, 'annulee'), 1, 0  ),
+            idex_annulee_s = ifelse(!is.na(idex_s) & str_detect(idex_s, 'annulee'), 1, 0  )
   )]
 rm(ds,all_combinations)
 gc()
@@ -212,21 +224,33 @@ reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(
 
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
 test_feols <- feols(movers_w ~ 
-                      i(year, uni_pub_r*(1-entrant), 2008) +
+                      i(year, uni_pub_r, 2008) +
                       i(year, uni_pub_s, 2008)+ 
                       i(year, uni_pub_r*uni_pub_s, 2008) 
                     + i(year, uni_pub_r*abroad_s, 2008)
                     + i(year, uni_pub_s*abroad_r, 2008)
                     + i(year, uni_pub_r*entrant, 2008)
+                    + i(year, has_idex_r*(1-uni_pub_r), 2008)
+                    + i(year, has_idex_s*(1-uni_pub_s), 2008)
+                    + i(year, has_idex_r*has_idex_s, 2008)
+                    + i(year, has_idex_r*(1-uni_pub_r)*abroad_s, 2008)
+                    + i(year, has_idex_s*(1-uni_pub_s)*abroad_r, 2008)
+                    + i(year, has_idex_r*uni_pub_r, 2008)
+                    + i(year, has_idex_s*uni_pub_s, 2008)
+                    + i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s, 2008)
+                    + i(year, has_idex_r*uni_pub_r*abroad_s, 2008)
+                    + i(year, has_idex_s*uni_pub_s*abroad_r, 2008)
+                    
                     #+ size_r*as.factor(year)+size_s*as.factor(year)
                     | 
                       inst_id_receiver + inst_id_sender + year
                     + inst_id_receiver^inst_id_sender
                     + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year
                     + fused_r^year + fused_s^year + fused_r^fused_s^year
+                    + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year
                      + type_r_year + type_s_year + type_s_type_r_year
-                    + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
-                    # +city_r^year + city_s^year + city_r^city_s^year
+                     + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
+                   #  +city_r^year + city_s^year + city_r^city_s^year
                     , data = reg_df %>%
                       .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
                       .[year >= 2003]
@@ -234,13 +258,27 @@ test_feols <- feols(movers_w ~
                     ,cluster = c('inst_id_sender','inst_id_receiver')
                     )
 
-
+etable(test_feols)
 iplot(test_feols, i.select=1, main = 'Universities as destination')
 iplot(test_feols, i.select=2, main = 'Universities as origin')
 iplot(test_feols, i.select=3, main = 'Between-university flows')
 iplot(test_feols, i.select=4, main = 'Flows to universities from abroad')
 iplot(test_feols, i.select=5, main = 'Flows abroad from universities')
 iplot(test_feols, i.select=6, main = 'Flow of entrants to universities')
+iplot(test_feols, i.select=7, main = 'Idex as destination')
+iplot(test_feols, i.select=8, main = 'Idex as origin')
+iplot(test_feols, i.select=9, main = 'Between-idex flows')
+iplot(test_feols, i.select=10, main = 'Flows to idex from abroad')
+iplot(test_feols, i.select=11, main = 'Flows from idex to abroad')
+iplot(test_feols, i.select=12, main = 'Idex public universities as destination')
+iplot(test_feols, i.select=13, main = 'Idex public universities as origin')
+iplot(test_feols, i.select=14, main = 'Between-idex public universities flows')
+iplot(test_feols, i.select=15, main = 'Flows to idex public universities from abroad')
+iplot(test_feols, i.select=16, main = 'Flows from idex public universities to abroad')
+
+
+
+
 
 test_feols_fe <- fixef(test_feols)
 
