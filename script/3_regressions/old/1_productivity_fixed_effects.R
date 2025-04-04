@@ -32,15 +32,15 @@ ds <- open_dataset(inputpath) %>%
 
   ) %>%
   select(author_id, author_name, year,
-         entry_year,country, 
-         inst_id, inst_name, inst_type, main_field,
+         entry_year,
+         inst_id, name, type, main_field,
          publications_raw,citations_raw,  
          publications, citations,
          avg_rank_source_raw,nr_source_btm_50pct_raw,
          nr_source_mid_40pct_raw, nr_source_top_20pct_raw,nr_source_top_10pct_raw,nr_source_top_5pct_raw,
          avg_rank_source,nr_source_btm_50pct,
          nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
-         period_inst, uni_pub, cnrs, fused, 
+         period_inst, uni_pub, cnrs, fused, idex,
          n_inst_y,
          n_phd_students, in_supervisor_inst, 
          in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
@@ -116,13 +116,12 @@ inst_to_exclude <- c('I4210159570')
 cols_to_wins <- colnames(ds)[4:19]
 sample_df <- ds[n_authors_w_several_inst > 0
              & n_y_in_sample >=2
-             &  country == 'FR'
              & entry_year >=1965 
              & entry_year <=2006
              & year >= 1997
              & citations >0
              #& inst_type %in% c('facility','education')
-             & country == 'FR'
+             #& country == 'FR'
              & !(inst_id %in% inst_to_exclude) 
              & !(is.na(main_field))
              & !(inst_id %in% c('archive',"other"))
@@ -192,15 +191,20 @@ save_plot("E:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
 test <- sample_df[inst_id == "I4210144005"]
 sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
 # regressions -------------------------------------------------------------
-formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)| ',
+formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)
+                 + i(year, has_idex*uni_pub, 2008)
+                 + i(year, has_idex*(1-uni_pub), 2008)
+                  | ',
                   ' author_id + inst_id_field '
-                  ,'+ inst_type^year '
+                  ,'+ type^year '
                   ,'+ cnrs^year'
                   ,'+ fused^year'
                   ,'+ main_field^entry_cohort^year '
 )
 test_brutal <- feols(as.formula(formula)
-                     ,data = sample_df)
+                     ,data = sample_df %>%
+                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  )]
+                       )
 gc()
 iplot(test_brutal,i.select = 1)
 

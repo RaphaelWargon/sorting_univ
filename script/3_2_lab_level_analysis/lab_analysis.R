@@ -11,8 +11,8 @@ p_load('arrow'
        'cowplot')
 wins_vars <- function(x, pct_level = 0.025){
   if(is.numeric(x)){
-    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
-    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+    Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    #Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
   } else {x}
 }
 
@@ -224,24 +224,24 @@ reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(
 
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
 test_feols <- feols(movers_w ~ 
-                      i(year, uni_pub_r, 2008) +
-                      i(year, uni_pub_s, 2008)+ 
-                      i(year, uni_pub_r*uni_pub_s, 2008) 
-                    + i(year, uni_pub_r*abroad_s, 2008)
-                    + i(year, uni_pub_s*abroad_r, 2008)
-                    + i(year, uni_pub_r*entrant, 2008)
-                    + i(year, has_idex_r*(1-uni_pub_r), 2008)
-                    + i(year, has_idex_s*(1-uni_pub_s), 2008)
-                    + i(year, has_idex_r*has_idex_s, 2008)
-                    + i(year, has_idex_r*(1-uni_pub_r)*abroad_s, 2008)
-                    + i(year, has_idex_s*(1-uni_pub_s)*abroad_r, 2008)
-                    + i(year, has_idex_r*uni_pub_r, 2008)
-                    + i(year, has_idex_s*uni_pub_s, 2008)
-                    + i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s, 2008)
-                    + i(year, has_idex_r*uni_pub_r*abroad_s, 2008)
-                    + i(year, has_idex_s*uni_pub_s*abroad_r, 2008)
+                      i(year, uni_pub_r,                                        2008) 
+                    + i(year, uni_pub_s,                                        2008) 
+                    + i(year, uni_pub_r*uni_pub_s,                              2008) 
+                    + i(year, uni_pub_r*abroad_s,                               2008)
+                    + i(year, uni_pub_s*abroad_r,                               2008)
+                    + i(year, uni_pub_r*entrant,                                2008)
+                    + i(year, has_idex_r*(1-uni_pub_r),                         2008)
+                    + i(year, has_idex_s*(1-uni_pub_s),                         2008)
+                    + i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)
+                    + i(year, has_idex_r*(1-uni_pub_r)*abroad_s,                2008)
+                    + i(year, has_idex_s*(1-uni_pub_s)*abroad_r,                2008)
+                    + i(year, has_idex_r*uni_pub_r,                             2008)
+                    + i(year, has_idex_s*uni_pub_s,                             2008)
+                    + i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,        2008)
+                    + i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)
+                    + i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)
                     
-                    #+ size_r*as.factor(year)+size_s*as.factor(year)
+                    + size_r*as.factor(year)+size_s*as.factor(year)
                     | 
                       inst_id_receiver + inst_id_sender + year
                     + inst_id_receiver^inst_id_sender
@@ -249,11 +249,15 @@ test_feols <- feols(movers_w ~
                     + fused_r^year + fused_s^year + fused_r^fused_s^year
                     + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year
                      + type_r_year + type_s_year + type_s_type_r_year
+                     + public_r^year + public_s^year
                      + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
                    #  +city_r^year + city_s^year + city_r^city_s^year
                     , data = reg_df %>%
-                      .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
-                      .[year >= 2003]
+                      .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)]
+                   %>% .[year >= 2003 & 
+                           type_r %in% c('facility','abroad') 
+                                      & type_s %in% c('facility','entrant','abroad')
+                         ]
                     #,weights = reg_df$size_r + reg_df$size_r
                     ,cluster = c('inst_id_sender','inst_id_receiver')
                     )
@@ -311,29 +315,45 @@ dev.off()
 
 
 test_agg <- feols(movers_w ~ 
-                    i(post, uni_pub_r*(1-entrant), 0) +
-                    i(post, uni_pub_s,             0)+ 
-                    i(post, uni_pub_r*uni_pub_s,   0) 
-                  + i(post, uni_pub_r*abroad_s,    0)
-                  + i(post, uni_pub_s*abroad_r,    0)
-                  + i(post, uni_pub_r*entrant,     0)
-                  + size_r*as.factor(year)+size_s*as.factor(year)
+                    i(post, uni_pub_r*(1-entrant),                             0)
+                  + i(post, uni_pub_s,                                         0) 
+                  + i(post, uni_pub_r*uni_pub_s,                               0) 
+                  #+ i(post, uni_pub_r*abroad_s,                                0)
+                  #+ i(post, uni_pub_s*abroad_r,                                0)
+                  + i(post, uni_pub_r*entrant,                                 0)
+                  + i(post, has_idex_r*(1-uni_pub_r),                          0)
+                  + i(post, has_idex_s*(1-uni_pub_s),                          0)
+                  + i(post, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s), 0)
+                  + i(post, has_idex_r*(1-uni_pub_r)*abroad_s,                 0)
+                  + i(post, has_idex_s*(1-uni_pub_s)*abroad_r,                 0)
+                  + i(post, has_idex_r*(1-uni_pub_r)*entrant,                  0)
+                  + i(post, has_idex_r*uni_pub_r,                              0)
+                  + i(post, has_idex_s*uni_pub_s,                              0)
+                  + i(post, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,         0)
+                  + i(post, has_idex_r*uni_pub_r*abroad_s,                     0)
+                  + i(post, has_idex_s*uni_pub_s*abroad_r,                     0)
+                  + i(post, has_idex_r*uni_pub_r*entrant,                      0)
+                  #+ size_r*as.factor(year)+size_s*as.factor(year)
                   | 
                     inst_id_receiver + inst_id_sender + year
                   + inst_id_receiver^inst_id_sender
-                  + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year
-                  + fused_r^year + fused_s^year + fused_r^fused_s^year
-                  + type_r_year + type_s_year + type_s_type_r_year
-                  + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
+                  #+ cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year
+                  #+ fused_r^year + fused_s^year + fused_r^fused_s^year
+                  #+ type_r_year + type_s_year + type_s_type_r_year
+                  #+ main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
                   , data = reg_df %>%
                     .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
                     .[, post := as.numeric(year >2008)]%>%
-                    .[year >= 2003]
+                    .[year >= 2003 &
+                        type_r %in% c('facility') 
+                      & type_s %in% c('facility','entrant')]
                   ,cluster = c('inst_id_sender','inst_id_receiver')
                   
                   )
 etable(test_agg)
 gc()
+
+
 etable(test_agg, file = "E:\\panel_fr_res\\lab_results\\lab_mobility_agg")
 
   
