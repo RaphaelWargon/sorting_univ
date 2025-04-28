@@ -11,8 +11,8 @@ p_load('arrow'
        'cowplot')
 wins_vars <- function(x, pct_level = 0.025){
   if(is.numeric(x)){
-    Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
-    #Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
   } else {x}
 }
 
@@ -32,7 +32,7 @@ ds[,.N, by = c('type_r','type_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
 ds[,.N, by = c('type_fr_r','type_fr_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
 
 
-cols_to_summarize <- c("total", "stayers", "movers","total_w","stayers_w","movers_w")
+cols_to_summarize <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
 
 ggplot(ds%>%
          .[year >=1997] %>%
@@ -83,6 +83,37 @@ save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
 
 
 p <-ggplot(ds%>%
+             .[!is.na(type_r) & year >=1997 
+                & !(inst_id_sender == 'abroad' & inst_id_receiver == 'abroad') 
+               & !(inst_id_sender== 'entrant' & inst_id_receiver == 'abroad'
+               ) 
+             ] %>%
+             .[(!is.na(uni_pub_r) | inst_id_receiver == 'abroad') | (!is.na(uni_pub_s) | inst_id_sender == 'abroad')] %>%
+             .[, ':='(uni_pub_r = fifelse(is.na(uni_pub_r), 0, uni_pub_r),
+                      uni_pub_s = fifelse(is.na(uni_pub_s), 0, uni_pub_s)
+             )]%>%
+             #.[type_s %in% c('facility','entrant') & type_r == 'facility']%>%
+             .[, lapply(.SD, mean, na.rm = T), by = c('uni_pub_r','uni_pub_s','year'),.SDcols = cols_to_summarize] %>%
+             .[, move := case_when(uni_pub_r ==1 & uni_pub_s ==1 ~ 'Inside public universities',
+                                   uni_pub_r ==0 &  uni_pub_s ==1~ 'From university to outside',
+                                   uni_pub_r ==1 &  uni_pub_s ==0~ 'From outside to university',
+                                   uni_pub_r ==0 &  uni_pub_s ==0~ 'From outside to outside',
+                                   .default = 'From outside to outside')]
+)+
+  geom_line(aes(x=year,y=movers_w_medium, color = move), linewidth = 0.5)+
+  scale_color_manual(values = c('black','seagreen','firebrick','steelblue'))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows_abroad_entrant.png", p)
+
+
+
+p <-ggplot(ds%>%
          .[year >=1997 & !(inst_id_sender == 'abroad' & inst_id_receiver == 'abroad')
            & !(inst_id_sender== 'entrant' | inst_id_receiver == 'abroad'
            #    & inst_id_receiver == 'abroad'
@@ -115,7 +146,7 @@ test <- unique(ds%>%
 )
 
 
-cols_to_wins <- c('total','movers','stayers','movers_w','stayers_w','total_w')
+cols_to_wins <- cols_to_summarize
 reg_df <-  ds%>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins, by = c('type_r','type_s')]%>%
   .[, size_s:= ifelse(inst_id_sender == 'entrant', 
@@ -185,7 +216,7 @@ cols_to_fill_down_s <-c(  "name_s","city_s","fused_s","uni_pub_s", "cnrs_s"
                         )
 
 unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs')
-cols_to_fill_0 <- c('total','movers','stayers','total_w','movers_w','stayers_w')
+cols_to_fill_0 <- cols_to_summarize
 reg_df <- reg_df %>%
   .[, (unit_cols) := lapply(.SD, zoo::na.locf, na.rm = FALSE), 
     by = unit, .SDcols =unit_cols] %>%
@@ -223,34 +254,39 @@ reg_df[, .(n_obs = n_distinct(paste0(inst_id_receiver, inst_id_sender)),
 reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(N)]
 
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
-test_feols <- feols(movers_w ~ 
-                      i(year, uni_pub_r,                                        2008) 
-                    + i(year, uni_pub_s,                                        2008) 
-                    + i(year, uni_pub_r*uni_pub_s,                              2008) 
-                    + i(year, uni_pub_r*abroad_s,                               2008)
-                    + i(year, uni_pub_s*abroad_r,                               2008)
-                    + i(year, uni_pub_r*entrant,                                2008)
-                    + i(year, has_idex_r*(1-uni_pub_r),                         2008)
-                    + i(year, has_idex_s*(1-uni_pub_s),                         2008)
-                    + i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)
-                    + i(year, has_idex_r*(1-uni_pub_r)*abroad_s,                2008)
-                    + i(year, has_idex_s*(1-uni_pub_s)*abroad_r,                2008)
-                    + i(year, has_idex_r*uni_pub_r,                             2008)
-                    + i(year, has_idex_s*uni_pub_s,                             2008)
-                    + i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,        2008)
-                    + i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)
-                    + i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)
+list_feols <- list()
+outcomes <- colnames(reg_df)[str_detect(colnames(reg_df), 'movers_w')]
+for(var in outcomes[4:7]){
+
+test_feols <- feols(as.formula(paste0(var, ' ~ '
+                    ,'  i(year, uni_pub_r,                                        2008) '
+                    ,'+ i(year, uni_pub_s,                                        2008) '
+                    ,'+ i(year, uni_pub_r*uni_pub_s,                              2008) '
+                    ,'+ i(year, uni_pub_r*abroad_s,                               2008)'
+                    ,'+ i(year, uni_pub_s*abroad_r,                               2008)'
+                    ,'+ i(year, uni_pub_r*entrant,                                2008)'
+                    ,'+ i(year, has_idex_r*(1-uni_pub_r),                         2008)'
+                    ,'+ i(year, has_idex_s*(1-uni_pub_s),                         2008)'
+                    ,'+ i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)'
+                    ,'+ i(year, has_idex_r*(1-uni_pub_r)*abroad_s,                2008)'
+                    ,'+ i(year, has_idex_s*(1-uni_pub_s)*abroad_r,                2008)'
+                    ,'+ i(year, has_idex_r*uni_pub_r,                             2008)'
+                    ,'+ i(year, has_idex_s*uni_pub_s,                             2008)'
+                    ,'+ i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,        2008)'
+                    ,'+ i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)'
+                    ,'+ i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)'
                     
-                    + size_r*as.factor(year)+size_s*as.factor(year)
-                    | 
-                      inst_id_receiver + inst_id_sender + year
-                    + inst_id_receiver^inst_id_sender
-                    + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year
-                    + fused_r^year + fused_s^year + fused_r^fused_s^year
-                    + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year
-                     + type_r_year + type_s_year + type_s_type_r_year
-                     + public_r^year + public_s^year
-                     + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
+                    ,"+ size_r*as.factor(year)+size_s*as.factor(year)"
+                    ,"|" 
+                  ,"    inst_id_receiver + inst_id_sender + year"
+                  ,"  + inst_id_receiver^inst_id_sender"
+                  ,"  + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year"
+                  ,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
+                  ,"  + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year"
+                  ,"   + type_r_year + type_s_year + type_s_type_r_year"
+                  ,"   + public_r^year + public_s^year"
+                  ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
+                  ))
                    #  +city_r^year + city_s^year + city_r^city_s^year
                     , data = reg_df %>%
                       .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)]
@@ -261,26 +297,59 @@ test_feols <- feols(movers_w ~
                     #,weights = reg_df$size_r + reg_df$size_r
                     ,cluster = c('inst_id_sender','inst_id_receiver')
                     )
+list_feols[[var]] <- test_feols
+  
 
-etable(test_feols)
-iplot(test_feols, i.select=1, main = 'Universities as destination')
-iplot(test_feols, i.select=2, main = 'Universities as origin')
-iplot(test_feols, i.select=3, main = 'Between-university flows')
-iplot(test_feols, i.select=4, main = 'Flows to universities from abroad')
-iplot(test_feols, i.select=5, main = 'Flows abroad from universities')
-iplot(test_feols, i.select=6, main = 'Flow of entrants to universities')
-iplot(test_feols, i.select=7, main = 'Idex as destination')
-iplot(test_feols, i.select=8, main = 'Idex as origin')
-iplot(test_feols, i.select=9, main = 'Between-idex flows')
-iplot(test_feols, i.select=10, main = 'Flows to idex from abroad')
-iplot(test_feols, i.select=11, main = 'Flows from idex to abroad')
-iplot(test_feols, i.select=12, main = 'Idex public universities as destination')
-iplot(test_feols, i.select=13, main = 'Idex public universities as origin')
-iplot(test_feols, i.select=14, main = 'Between-idex public universities flows')
-iplot(test_feols, i.select=15, main = 'Flows to idex public universities from abroad')
-iplot(test_feols, i.select=16, main = 'Flows from idex public universities to abroad')
+}
 
+outcomes_dict <- c("movers_w"                  =     'Total flows',
+                   "movers_w_junior"           =     'Junior researcher flows',
+                   "movers_w_senior"           =     'Senior researcher flows',
+                   "movers_w_medium"           =     'Medium researcher flows',
+                   "movers_w_own_entrant_r"    =     'Exiting from entry institution',
+                   "movers_w_own_entrant_s"    =     'Exiting from entry institution',
+                   "movers_w_foreign_entrant"  =     'Foreign entrant flows',
+                   
+                   "uni_pub_r"            =     ' into universities',
+                   "uni_pub_s"            =     ' away from universities',
+                   "uni_pub_r*uni_pub_s"  =     ' between two universities',
+                   "uni_pub_r*abroad_s"   =     ' to universities from abroad',
+                   "uni_pub_s*abroad_r"   =     ' abroad from universities',
+                   "uni_pub_r*entrant"    =     ', entrants to universities',
+                   
+                   
+                   "has_idex_r*(1-uni_pub_r)"                           =      ' into Idex',
+                   "has_idex_s*(1-uni_pub_s)"                           =      ' away from Idex',
+                   "has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s)"  =      ' between two Idex',   
+                   "has_idex_r*(1-uni_pub_r)*abroad_s"                  =      ' to Idex from abroad',     
+                   "has_idex_s*(1-uni_pub_s)*abroad_r"                  =      ' abroad from Idex',
+                   
+                   "has_idex_r*uni_pub_r"                        =      ' into public universities Idex',
+                   "has_idex_s*uni_pub_s"                        =      ' away from public universities Idex',                          
+                   "has_idex_r*uni_pub_r*has_idex_s*uni_pub_s"   =      ' between two public universities Idex',  
+                   "has_idex_r*uni_pub_r*abroad_s"               =      ' to public universities Idex from abroad',                   
+                   "has_idex_s*uni_pub_s*abroad_r"               =      ' abroad from idex public universities Idex'            
+                   
+)
+for(var in names(list_feols)){
 
+  var_path = paste0("E:\\panel_fr_res\\lab_results\\", var)
+    if (!file.exists(var_path)){
+      dir.create(var_path, recursive = TRUE)
+    }
+  formula_normalized = str_replace_all(as.character(list_feols[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], "_facility_wUMR.pdf"))
+    iplot(test_feols, i.select=i_select, 
+                 main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+                )
+    dev.off()
+  }
+  
+  
+  
+}
 
 
 
