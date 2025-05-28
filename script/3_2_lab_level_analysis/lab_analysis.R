@@ -256,7 +256,7 @@ reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
 list_feols <- list()
 outcomes <- colnames(reg_df)[str_detect(colnames(reg_df), 'movers_w')]
-for(var in outcomes[4:7]){
+for(var in outcomes){
 
 test_feols <- feols(as.formula(paste0(var, ' ~ '
                     ,'  i(year, uni_pub_r,                                        2008) '
@@ -284,21 +284,21 @@ test_feols <- feols(as.formula(paste0(var, ' ~ '
                   ,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
                   ,"  + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year"
                   ,"   + type_r_year + type_s_year + type_s_type_r_year"
-                  ,"   + public_r^year + public_s^year"
+                  #,"   + public_r^year + public_s^year"
                   ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
                   ))
                    #  +city_r^year + city_s^year + city_r^city_s^year
                     , data = reg_df %>%
                       .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)]
-                   %>% .[year >= 2003 & 
-                           type_r %in% c('facility','abroad') 
-                                      & type_s %in% c('facility','entrant','abroad')
+                   %>% .[year >= 2003 
+                         &  type_r %in% c('facility','university','abroad') 
+                                      & type_s %in% c('facility','entrant','abroad','university')
                          ]
                     #,weights = reg_df$size_r + reg_df$size_r
                     ,cluster = c('inst_id_sender','inst_id_receiver')
                     )
 list_feols[[var]] <- test_feols
-  
+gc()
 
 }
 
@@ -306,7 +306,7 @@ outcomes_dict <- c("movers_w"                  =     'Total flows',
                    "movers_w_junior"           =     'Junior researcher flows',
                    "movers_w_senior"           =     'Senior researcher flows',
                    "movers_w_medium"           =     'Medium researcher flows',
-                   "movers_w_own_entrant_r"    =     'Exiting from entry institution',
+                   "movers_w_own_entrant_r"    =     'Returning to entry institution',
                    "movers_w_own_entrant_s"    =     'Exiting from entry institution',
                    "movers_w_foreign_entrant"  =     'Foreign entrant flows',
                    
@@ -341,7 +341,7 @@ for(var in names(list_feols)){
   list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
   for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
     pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], "_facility_wUMR.pdf"))
-    iplot(test_feols, i.select=i_select, 
+    iplot(list_feols[[var]], i.select=i_select, 
                  main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
                 )
     dev.off()

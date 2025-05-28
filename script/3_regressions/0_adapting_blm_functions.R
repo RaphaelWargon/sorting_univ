@@ -360,7 +360,7 @@ m2.mixt.stayers_wdist <- function (sdata, model, ctrl)
   iter_start = 1
   for (count in iter_start:ctrl$maxiter) {
     norm1 = (dnorm(spread(Y1, 2, nk), t(Wmu[, J1]), t(Wsg[, 
-                                                         J1]))+1)
+                                                         J1])))
     
     tau = PI[J1x, ] * norm1
     tsum = Matrix::rowSums(tau)

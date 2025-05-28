@@ -10,7 +10,9 @@ p_load('arrow'
        'DescTools',
        'cowplot','devtools','cluster',
        'factoextra','tictoc',
-       'rblm')
+       'rblm',
+       'fitdistrplus','actuar'
+       )
 #install_github("tlamadon/rblm")
 #library('rblm')
 wins_vars <- function(x, pct_level = 0.01){
@@ -28,6 +30,12 @@ inputpath <- "E:\\panel_fr_res\\panel_smoothed_w_theses.parquet"
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
 
+wins_vars <- function(x, pct_level = 0.01){
+  if(is.numeric(x)){
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+  } else {x}
+}
 
 # Load data ---------------------------------------------------------------
 
@@ -80,7 +88,8 @@ ds <- ds %>%
   .[,field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id']%>%
   .[,max_field_value := max(field_value), by = 'inst_id'] %>%
   .[,main_field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(main_field), max_field, main_field)] %>%
-  .[, main_field := main_field_recoded]
+  .[, main_field := main_field_recoded] %>%
+  .[, citations_raw := wins_vars(citations_raw),  by = c('year','main_field')]
 gc()
 
 complete_ds <- as.data.table(unique(ds %>%
@@ -95,27 +104,28 @@ ds_for_classification <-merge(complete_ds,
                               ds%>%
                                 .[, first_y_lab  := min(year), by = inst_id] %>%
                                 .[, inst_id_field := paste0(inst_id, '_', main_field)] %>%
-                                .[, list(citations_raw, year,type,entry_year,main_field,
+                                .[, list(citations_raw, citations, year,type,entry_year,main_field,
                                          fused,idex,cnrs,uni_pub,first_y_lab,ecole,universite
-                                         ,public,prive, author_id, inst_id, inst_id_field, author_name, name)] %>%
+                                         ,public,prive, author_id, inst_id, inst_id_field, author_name, name,period_inst)] %>%
                                 .[,year := as.character(year)],
                               by = c('author_id','year'), all.x = TRUE
                               ) %>%
   tidyr::fill(c(entry_year,main_field,type,
-                fused,idex,cnrs,uni_pub,ecole,universite
-                ,public,prive, author_id, inst_id, inst_id_field, first_y_lab, author_name, name), .direction = 'down')%>%
-  mutate(citations_raw = ifelse(is.na(citations_raw), 0, citations_raw)) 
-
+                fused,idex,cnrs,uni_pub,ecole,universite, citations
+                ,public,prive, period_inst, author_id, inst_id, inst_id_field, first_y_lab, author_name, name), .direction = 'down')%>%
+  mutate(citations_raw = ifelse(is.na(citations_raw), 0, citations_raw))
 
 ds_for_classification <- as.data.table(ds_for_classification) %>%
   .[!is.na(main_field)] %>%
   .[year %in% c(y_change - 5, y_change-6) & entry_year <= y_change-6]%>%
-  .[, list(citations_raw, year,type,entry_year,main_field,
+  .[, list(citations_raw, citations, year,type,entry_year,main_field,
            fused,idex,cnrs,uni_pub,first_y_lab,ecole,universite
            ,public,prive, author_id, inst_id, inst_id_field, author_name, name)]
 
 #ds_for_classification <- unique(ds_for_classification)
 gc()
+
+ggplot(ds_for_classification)+geom_density(aes(x= log(citations_raw+1), color = year))
 
 p_load('igraph')
 edges <- as.vector(t(ds_for_classification[, c("inst_id_field", "author_id")]))
@@ -136,57 +146,96 @@ ds_for_classification <- unique(ds_for_classification %>%
   .[, ':='(weight = 1/.N), by = c('author_id','year')] 
 
 
+ggplot(ds_for_classification)+
+  geom_density(aes(x= sqrt(citations_raw), color = as.factor(year)))
+
 # Residualise citations for BLM decomposition -----------------------------
 
 
-residualise_cit <- glm(citations_raw ~ 1 +as.factor(year)*(type+ as.factor(entry_year)+main_field +
+residualise_cit_raw <- glm(citations_raw ~ 1 +as.factor(year)*(type+ as.factor(entry_year)+main_field +
                         fused+idex+ cnrs+uni_pub +first_y_lab + ecole + universite + public + prive )
                       , data= ds_for_classification, family = "poisson"
                       ,weights = weight
 )
-gc()
-plot(predict(residualise_cit))
 
-ds_for_classification$residualised_cit <- ds_for_classification$citations_raw - predict(residualise_cit)
-
-plot(ds_for_classification$residualised_cit)
 gc()
 
+residualise_cit_smoothed <- glm(citations ~ 1 +as.factor(year)*(type+ as.factor(entry_year)+main_field +
+                                                                 fused+idex+ cnrs+uni_pub +first_y_lab + ecole + universite + public + prive )
+                           , data= ds_for_classification, family = "poisson"
+                           ,weights = weight
+)
 
+gc()
+
+
+ds_for_classification$residualised_cit <- residualise_cit_raw$residuals
+ds_for_classification$residualised_cit_smooth <- rstandard(residualise_cit_smoothed, type = "deviance")
+
+
+ggplot(ds_for_classification)+
+  geom_density(aes(x= residualised_cit_smooth, color = as.factor(year)))
+summary(ds_for_classification$residualised_cit_smooth)
+ggplot(ds_for_classification)+
+  geom_histogram(aes(x= residualised_cit_smooth, color = as.factor(year)))
+
+
+ggplot(ds_for_classification)+
+  geom_density(aes(x= citations-residualised_cit_smooth, color = as.factor(year)))
+ggplot(ds_for_classification)+
+  geom_density(aes(x= citations, color = as.factor(year)))
+
+
+
+ggplot(ds_for_classification %>%
+         .[,norm_res_cit_sm := 
+             (residualised_cit_smooth-min(residualised_cit_smooth, na.rm =T))/(max(residualised_cit_smooth, na.rm =T)-min(residualised_cit_smooth, na.rm =T)), by = 'year' ])+
+  geom_density(aes(x= norm_res_cit_sm, color = as.factor(year)))
+
+gc()
+
+fwrite(ds_for_classification, "E:\\panel_fr_res\\ds_classification_blm.csv")
 # Build subsets of data for BLM analysis ----------------------------------
+
+ds_for_classification<- fread("E:\\panel_fr_res\\ds_classification_blm.csv")
 
 data1 <- unique(ds_for_classification %>%
   .[year == y_change - 6] %>%
-  .[, ":="(y1= residualised_cit, f1 = inst_id_field, wid = author_id, weight1 = weight, name1= name)] %>%
+  .[, ":="(y1= residualised_cit_smooth, f1 = inst_id_field, wid = author_id, weight1 = weight, name1= name)] %>%
   .[, list(f1,y1, wid,weight1, name1, author_name)]) 
 data2 <- unique(ds_for_classification %>%
   .[year == y_change - 5] %>%
-  .[, ":="(y2= residualised_cit, f2 = inst_id_field, wid = author_id, weight2 = weight, name2 = name)] %>%
+  .[, ":="(y2= residualised_cit_smooth, f2 = inst_id_field, wid = author_id, weight2 = weight, name2 = name)] %>%
   .[, list(f2,y2, wid,weight2, name2,author_name)])
 
 
 
 data <- merge(data1, data2, by = c('wid','author_name'), allow.cartesian = FALSE) %>%
-  .[ !is.na(f2) & !is.na(f1)] %>%
-  .[, ':='(y1 = ((y1-min(y1))),
-           y2 = ((y2-min(y2)))
-           )]
+  .[ !is.na(f2) & !is.na(f1) & !is.na(y1) & !is.na(y2)] #%>%
+  #.[, ':='(y1 = ((y1-min(y1))),
+  #         y2 = ((y2-min(y2)))
+  #         )]
 
 data[, .(N = (sum(weight2))), by = 'wid']
 ds_to_classify <- list()
-
+p_load('actuar')
 ggplot(data)+
-  geom_density(aes(x = log(y1)), color = "red")+
-  geom_density(aes(x = log(y2)), color = "darkgreen")
+  geom_density(aes(x = y1), color = "red")+
+  geom_density(aes(x = y2), color = "darkgreen")
 
+#distrib <- fitdist(data$y1, "nbinom")
+#distrib <- fitdist(data$y1, "pareto", start =  list(shape = 1, scale = 500) )
+#distrib2 <- fitdist(data$y1, "burr", start = list(shape1 = 0.3, shape2 = 1, rate = 1))
+#cdfcomp(list(distrib, distrib2))
 
-  ds_to_classify$sdata <- data[f1==f2]
+ds_to_classify$sdata <- data[f1==f2]
 ds_to_classify$jdata <- data[f1!=f2]
 
 
 ggplot()+
-  geom_density(aes(x = log(y1+min(y1)+1)), color = "red", data = ds_to_classify$sdata)+
-  geom_density(aes(x = log(y2+min(y1)+1)), color = "darkgreen", data = ds_to_classify$sdata)
+  geom_density(aes(x = y1), color = "red", data = ds_to_classify$sdata)+
+  geom_density(aes(x = y2), color = "darkgreen", data = ds_to_classify$sdata)
+
 ggplot()+
   geom_density(aes(x = y1), color = "red", data = ds_to_classify$jdata)+
   geom_density(aes(x = y2), color = "darkgreen", data = ds_to_classify$jdata)
@@ -214,12 +263,14 @@ ggplot(group_classes$summary %>%
   scale_color_manual(values= c('aquamarine4', 'steelblue4'))+
   geom_vline(aes(xintercept = group_classes$best_k), linetype = 'dashed')+
   theme_bw()+labs(title = 'K-means clustering results')+ 
-  xlab('Number of clusters')+ylab('Value')
+  xlab('Number of clusters')+ylab('Value')+theme(legend.box.margin = margin()) 
+ggsave(filename = "E:\\panel_fr_res\\models_blm\\firms\\R\\firm_cluster_metrics.png"
+       , width= 840*2.5, height = 640*2.5, unit = 'px')
 
 #group_classes <- grouping.classify.once(group_measures,k = 10 #ceiling( (1:(nf/100)^(1/1.3))^1.3)
 #                                        )
 
-ds_to_classify <- grouping.append(ds_to_classify, group_classes$all[[6]] )
+ds_to_classify <- grouping.append(ds_to_classify, group_classes$all[[10]] )
 ds_to_classify$sdata <- ds_to_classify$sdata %>% 
   .[!is.na(j1) & !is.na(j2)]# pb with this author for some reason
 ds_to_classify$jdata <- ds_to_classify$jdata %>% 
@@ -229,17 +280,25 @@ ds_to_classify$sdata[, .(sum(weight1)), by= j1]
 ds_to_classify$sdata[, .(n_distinct(f1)), by= j1]
 
 ggplot()+
-  geom_density(aes(x= y1, color = as.factor(j1) ), data = ds_to_classify$sdata[y1 >=0])+
-  geom_density(aes(x= y1, color = as.factor(j1) ), ds_to_classify$jdata[y1 >=0], linetype = 'dashed')
+  geom_density(aes(x= y1, color = as.factor(j1) ), data = ds_to_classify$sdata)+
+  geom_density(aes(x= y1, color = as.factor(j1) ), ds_to_classify$jdata, linetype = 'dashed')
 
 ggplot()+
-  geom_density(aes(x= log(y1+min(y1)+1), color = as.factor(j1) ), data = ds_to_classify$sdata[y1 >=0])+
-  geom_density(aes(x= log(y1+min(y1)+1), color = as.factor(j1) ), ds_to_classify$jdata[y1 >=0], linetype = 'dashed')
+  geom_density(aes(x= log(y1+min(y1)+1), color = as.factor(j1) ), data = ds_to_classify$sdata)+
+  geom_density(aes(x= log(y1+min(y1)+1), color = as.factor(j1) ), ds_to_classify$jdata, linetype = 'dashed')
 
+
+ggplot()+
+  geom_density(aes(x= log(y1), color = as.factor(j1) ), data = ds_to_classify$sdata)
+
+test <- unique(ds_to_classify$sdata[, list(j1, name1)])
 
 ggplot()+
   geom_density(aes(x= y2, color = as.factor(j2) ), data = ds_to_classify$sdata[y2 >=0])+
   geom_density(aes(x= y2, color = as.factor(j2) ), ds_to_classify$jdata[y2 >=0], linetype = 'dashed')
+
+
+summary(ds_to_classify$sdata)
 
 #classes <- as.data.table(list(inst_id = names(group_classes$best_cluster),group = group_classes$best_cluster))
 #
@@ -259,7 +318,14 @@ ctrl =em.control(sdata_subredraw = FALSE)
 #est_interm <- debug_mixt_estimate(ds_to_classify, nk =group_classes$best_k, ctrl)
 
 gc()
-ds_to_classify$sdata <- ds_to_classify$sdata %>% .[, ':='(sample =1, x=1)]
+ds_to_classify$sdata <- ds_to_classify$sdata %>% .[, ':='(sample =1, x=1,
+                                                          y1 = log(y1-min(y1)+1),
+                                                          y2 = log(y2-min(y2)+1)
+                                                          )]
+ds_to_classify$jdata <- ds_to_classify$jdata %>% .[, ':='(y1 = log(y1-min(y1)+1),
+                                                          y2 = log(y2-min(y2)+1)
+)]
+
 ## 12485
 #model <- res_mixt$model
 
@@ -267,11 +333,11 @@ all_estimates = list()
 n_workers = length(unique(data$wid))
 output_path_models = "E:\\panel_fr_res\\models_blm\\workers\\"
 rewrite = TRUE
-for(nk in 2:12){
+for(nk in 2:2){
   output_model_workers = paste0(output_path_models, 'BLM_', nk, '.RData')
   model_name = paste0('estimates_', nk)
   if(file.exists(output_model_workers) & rewrite == FALSE){
-    print('loading ', nk)
+    print(paste0('loading ', as.character(nk)) )
     load(output_model_workers)
     all_estimates[[nk]] <- get(model_name)
     rm(list = model_name)
@@ -279,7 +345,7 @@ for(nk in 2:12){
     print('loaded')
   }
  else{
-   print('computing ', nk)
+   print(paste0('computing ',  as.character(nk)))
   all_estimates[[nk]] <- m2.mixt.estimate.all_wdist(ds_to_classify, nk = nk, ctrl)
   assign(x = model_name, value = all_estimates[[nk]])
   save(list = model_name, file = output_model_workers)
@@ -292,15 +358,15 @@ for(nk in 2:length(all_estimates)){
   all_likelihoods = c(all_likelihoods, all_estimates[[nk]]$liks)
 }
 
-ggplot(as.data.table(list(k = 2:9, likelihood = all_likelihoods)))+
-  geom_line(aes(x=(k), y= (likelihood)))
+ggplot(as.data.table(list(k = 2:length(all_estimates), likelihood = all_likelihoods)))+
+  geom_line(aes(x=k, y= likelihood))
 
-m2.mixt.rdim.pk1(all_estimates[[6]]$model$pk1)
+m2.mixt.rdim.pk1(all_estimates[[7]]$model$pk1)
 m2.mixt.pplot(est$model$pk1) 
 m2.mixt.wplot(est$model$A2) 
 m2.mixt.pplot(est$model$dist) 
 
-test <- merge(data, all_estimates[[6]]$model$dist)
+test <- merge(data, all_estimates[[5]]$model$dist,  by = 'wid')
 test <- merge(test,
               as.data.table( list(f1 = names(group_classes$best_cluster), l1= group_classes$best_cluster)), by = 'f1')
 
@@ -312,7 +378,7 @@ test1 <- merge(unique(test[,list(wid,max_k)]),
 unique(test[,list(max_k, wid)])[, .N, by = 'max_k']
 unique(test[,list(max_k, k_1, k_2, k_3, k_4, k_5, k_6, wid)])[, lapply(.SD, mean,), .SDcols= c('k_1','k_2',"k_3",'k_4','k_5','k_6'), by = "max_k"]
 
-to_plot <-test %>%
+to_plot <- as.data.table(test) %>%
   .[, .(k_1 = sum(k_1*weight1,na.rm =T),
         k_2 = sum(k_2*weight1,na.rm =T),
         k_3 = sum(k_3*weight1,na.rm =T),
@@ -320,7 +386,7 @@ to_plot <-test %>%
         k_5 = sum(k_5*weight1,na.rm =T),
         k_6 = sum(k_6*weight1,na.rm =T)
         ), by = l1] %>%
-  pivot_longer(c('k_1','k_2',"k_3",'k_4','k_5','k_6'), values_to = 'value', names_to = 'k')
+  tidyr::pivot_longer(c('k_1','k_2',"k_3",'k_4','k_5','k_6'), values_to = 'value', names_to = 'k')
 to_plot <- as.data.table(to_plot) %>%
   .[, value := value/sum(value), by = 'l1'] %>%
   .[, ':='(l1 = as.factor(l1), k = str_replace(k, 'k_', ''))]
