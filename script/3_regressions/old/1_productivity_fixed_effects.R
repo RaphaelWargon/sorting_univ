@@ -17,7 +17,7 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
-inputpath <- "E:\\panel_fr_res\\panel_smoothed_w_theses.parquet"
+inputpath <- "D:\\panel_fr_res\\panel_smoothed_w_theses.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
@@ -40,7 +40,7 @@ ds <- open_dataset(inputpath) %>%
          nr_source_mid_40pct_raw, nr_source_top_20pct_raw,nr_source_top_10pct_raw,nr_source_top_5pct_raw,
          avg_rank_source,nr_source_btm_50pct,
          nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
-         period_inst, uni_pub, cnrs, fused, idex,
+         period_inst, uni_pub, cnrs,type, fused, idex, main_topic, city, prive, public, ecole, 
          n_inst_y,
          n_phd_students, in_supervisor_inst, 
          in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year

@@ -17,7 +17,7 @@ wins_vars <- function(x, pct_level = 0.025){
 }
 
 
-inputpath <- "E:\\panel_fr_res\\inst_level_flows.parquet"
+inputpath <- "D:\\panel_fr_res\\inst_level_flows.parquet"
 
 ds <- as.data.table(open_dataset(inputpath))
 gc()
