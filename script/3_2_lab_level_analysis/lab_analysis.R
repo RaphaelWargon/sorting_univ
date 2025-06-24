@@ -17,14 +17,16 @@ wins_vars <- function(x, pct_level = 0.025){
 }
 
 
-inputpath <- "E:\\panel_fr_res\\inst_level_flows.parquet"
+inputpath <- "D:\\panel_fr_res\\inst_level_flows.parquet"
 
 ds <- as.data.table(open_dataset(inputpath))
 gc()
 ds <- ds %>%
   .[, type_r := first(ifelse(type_s != 'abroad' | inst_id_receiver == 'abroad', type_r, NA), na_rm = TRUE), by = 'inst_id_receiver'] %>%
   .[, ":="(uni_pub_r = pmax(uni_pub_r, universite_r), 
-           uni_pub_s = pmax(uni_pub_s, universite_s))]
+           uni_pub_s = pmax(uni_pub_s, universite_s))] %>%
+  .[,size_s := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers), by = c('inst_id_sender','year')]%>%
+  .[,size_r := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers), by = c('inst_id_receiver','year')]
 unique(ds[is.na(type_r)][, list(inst_id_receiver, name_r)])
 
 ds[,.N, by = c('type_r','type_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
@@ -79,7 +81,7 @@ p <-ggplot(ds%>%
   labs(title = '')+xlab('Year')+ylab('')
 p
 
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
 
 
 p <-ggplot(ds%>%
@@ -109,7 +111,7 @@ p <-ggplot(ds%>%
   labs(title = '')+xlab('Year')+ylab('')
 p
 
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows_abroad_entrant.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_flows_abroad_entrant.png", p)
 
 
 
@@ -136,7 +138,7 @@ p <-ggplot(ds%>%
   #guides(color = guide_legend(nrow=2,byrow=TRUE))+
   labs(title = '')+xlab('Year')+ylab('')
 p
-save_plot("E:\\panel_fr_res\\desc_stats\\total_authors.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\total_authors.png", p)
 
     
 
@@ -181,7 +183,8 @@ reg_df <-  ds%>%
            
   )] %>%
   .[, size_fe := n_distinct(paste0(inst_id_receiver, inst_id_sender)), by =c('uni_pub_r','uni_pub_s','type_r','type_s') ] %>%
-  .[size_fe >=250 & size_r >=5 & size_s >=5] %>%
+  .[size_fe >=250 & (size_r >=5 & size_s >=5 | is.na(size_r) | is.na(size_s))
+    ] %>%
   .[ !is.na(type_s) & !is.na(type_r)
      & type_s %in% c('facility','abroad',"entrant"#,'government','company'
                    ) & type_r %in% c('facility','abroad'#,'government','company'
@@ -207,12 +210,12 @@ reg_df <- reg_df[all_combinations, on = .(unit, year)]
 setorder(reg_df, unit, year)
 
 cols_to_fill_down_r <-c( "name_r","city_r","fused_r", "uni_pub_r"         
-                      ,"cnrs_r","type_r","main_topic_r","topic_share_r","size_r",
-                       "entry_year_r", "ecole_r",'universite_r','public_r','prive_r','idex_r'
+                      ,"cnrs_r","type_r","main_topic_r","topic_share_r",
+                       "entry_year_r", "ecole_r",'universite_r','public_r','prive_r','idex_r','size_r'
                       )
 cols_to_fill_down_s <-c(  "name_s","city_s","fused_s","uni_pub_s", "cnrs_s"            
-                         ,"type_s","topic_share_s","size_s", "main_topic_s",   
-                        "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','idex_s'
+                         ,"type_s","topic_share_s", "main_topic_s",   
+                        "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','idex_s','size_s'
                         )
 
 unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs')
@@ -221,9 +224,9 @@ reg_df <- reg_df %>%
   .[, (unit_cols) := lapply(.SD, zoo::na.locf, na.rm = FALSE), 
     by = unit, .SDcols =unit_cols] %>%
   .[year >= entry_year_pair] %>%
-  .[, (cols_to_fill_down_r) := lapply(.SD, zoo::na.locf), 
+  .[, (cols_to_fill_down_r) := lapply(.SD, function(x) zoo::na.locf(x, na.rm = FALSE)), 
              by = inst_id_receiver, .SDcols = cols_to_fill_down_r] %>%
-  .[, (cols_to_fill_down_s) := lapply(.SD, zoo::na.locf), 
+  .[, (cols_to_fill_down_s) := lapply(.SD, function(x) zoo::na.locf(x, na.rm = FALSE)), 
     by = inst_id_sender, .SDcols = cols_to_fill_down_s] %>%
   .[, (cols_to_fill_0) := lapply(.SD, function(x) fifelse(is.na(x), 0, x)), 
     .SDcols = cols_to_fill_0]%>%
@@ -256,7 +259,8 @@ reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
 list_feols <- list()
 outcomes <- colnames(reg_df)[str_detect(colnames(reg_df), 'movers_w')]
-for(var in outcomes[4:7]){
+
+for(var in outcomes){
 
 test_feols <- feols(as.formula(paste0(var, ' ~ '
                     ,'  i(year, uni_pub_r,                                        2008) '
@@ -264,7 +268,7 @@ test_feols <- feols(as.formula(paste0(var, ' ~ '
                     ,'+ i(year, uni_pub_r*uni_pub_s,                              2008) '
                     ,'+ i(year, uni_pub_r*abroad_s,                               2008)'
                     ,'+ i(year, uni_pub_s*abroad_r,                               2008)'
-                    ,'+ i(year, uni_pub_r*entrant,                                2008)'
+                    #,'+ i(year, uni_pub_r*entrant,                                2008)'
                     ,'+ i(year, has_idex_r*(1-uni_pub_r),                         2008)'
                     ,'+ i(year, has_idex_s*(1-uni_pub_s),                         2008)'
                     ,'+ i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)'
@@ -276,7 +280,7 @@ test_feols <- feols(as.formula(paste0(var, ' ~ '
                     ,'+ i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)'
                     ,'+ i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)'
                     
-                    ,"+ size_r*as.factor(year)+size_s*as.factor(year)"
+                    #,"+ size_r*as.factor(year)+size_s*as.factor(year)"
                     ,"|" 
                   ,"    inst_id_receiver + inst_id_sender + year"
                   ,"  + inst_id_receiver^inst_id_sender"
@@ -286,8 +290,10 @@ test_feols <- feols(as.formula(paste0(var, ' ~ '
                   ,"   + type_r_year + type_s_year + type_s_type_r_year"
                   ,"   + public_r^year + public_s^year"
                   ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
+                  ," +size_r^year + size_s^year"
                   ))
                    #  +city_r^year + city_s^year + city_r^city_s^year
+                 
                     , data = reg_df %>%
                       .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)]
                    %>% .[year >= 2003 & 
@@ -333,7 +339,7 @@ outcomes_dict <- c("movers_w"                  =     'Total flows',
 )
 for(var in names(list_feols)){
 
-  var_path = paste0("E:\\panel_fr_res\\lab_results\\", var)
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\", var)
     if (!file.exists(var_path)){
       dir.create(var_path, recursive = TRUE)
     }
@@ -359,26 +365,26 @@ test_feols_fe <- fixef(test_feols)
 test_feols_fe$`type_s_type_r_year`
 
 
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_r_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_facility_wUMR.pdf")
 iplot(test_feols, i.select=1, main = 'Universities as destination')
 dev.off()
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_s_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_s_facility_wUMR.pdf")
 iplot(test_feols, i.select=2, main = 'Universities as origin')
 dev.off()
 
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_rs_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_rs_facility_wUMR.pdf")
 iplot(test_feols, i.select=3, main = 'Between-university flows')
 dev.off()
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_r_abroad_s_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_abroad_s_facility_wUMR.pdf")
 iplot(test_feols, i.select=4, main = 'Flows to universities from abroad')
 dev.off()
 
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_s_abroad_r_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_s_abroad_r_facility_wUMR.pdf")
 iplot(test_feols, i.select=5, main = 'Flows abroad from universities')
 dev.off()
 
 
-pdf("E:\\panel_fr_res\\lab_results\\uni_pub_r_entrant_s_facility_wUMR.pdf")
+pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_entrant_s_facility_wUMR.pdf")
 iplot(test_feols, i.select=6, main = 'Flow of entrants to universities')
 dev.off()
 
@@ -423,6 +429,6 @@ etable(test_agg)
 gc()
 
 
-etable(test_agg, file = "E:\\panel_fr_res\\lab_results\\lab_mobility_agg")
+etable(test_agg, file = "D:\\panel_fr_res\\lab_results\\lab_mobility_agg")
 
   
