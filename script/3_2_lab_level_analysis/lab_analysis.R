@@ -1,7 +1,9 @@
 rm(list = ls())
 gc()
 library('pacman')
+devtools::install_github("jbisbee1/dyadRobust")
 
+library(dyadRobust)
 p_load('arrow'
        ,'data.table'
        ,'fixest'
@@ -17,6 +19,10 @@ wins_vars <- function(x, pct_level = 0.025){
 }
 
 
+# I) Loading data ------------------------------------------------------------
+
+
+
 inputpath <- "D:\\panel_fr_res\\inst_level_flows.parquet"
 
 ds <- as.data.table(open_dataset(inputpath))
@@ -25,13 +31,20 @@ ds <- ds %>%
   .[, type_r := first(ifelse(type_s != 'abroad' | inst_id_receiver == 'abroad', type_r, NA), na_rm = TRUE), by = 'inst_id_receiver'] %>%
   .[, ":="(uni_pub_r = pmax(uni_pub_r, universite_r), 
            uni_pub_s = pmax(uni_pub_s, universite_s))] %>%
-  .[,size_s := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers), by = c('inst_id_sender','year')]%>%
-  .[,size_r := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers), by = c('inst_id_receiver','year')]
+  .[,size_s := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers, na.rm = T), by = c('inst_id_sender','year')]%>%
+  .[,size_r := max(as.numeric(inst_id_sender == inst_id_receiver)*stayers, na.rm = T), by = c('inst_id_receiver','year')] %>%
+  .[, size_r := ifelse(size_r <= 0, sum(stayers_w), size_r),by = c('inst_id_receiver','year') ]%>%
+  .[, size_s := ifelse(size_s <= 0, sum(stayers_w), size_s),by = c('inst_id_sender','year') ] %>%
+  .[!is.na(inst_id_sender) & !is.na(inst_id_receiver)]
+
 unique(ds[is.na(type_r)][, list(inst_id_receiver, name_r)])
 
 ds[,.N, by = c('type_r','type_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
 
 ds[,.N, by = c('type_fr_r','type_fr_s','uni_pub_s','uni_pub_r')][order(-N)][N>100]
+
+
+# II) Global desc stats ---------------------------------------------------
 
 
 cols_to_summarize <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
@@ -148,7 +161,10 @@ test <- unique(ds%>%
 )
 
 
-cols_to_wins <- cols_to_summarize
+# III) Selection of labs and sphericization ------------------------------------
+
+
+cols_to_wins <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
 reg_df <-  ds%>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins, by = c('type_r','type_s')]%>%
   .[, size_s:= ifelse(inst_id_sender == 'entrant', 
@@ -183,21 +199,26 @@ reg_df <-  ds%>%
            
   )] %>%
   .[, size_fe := n_distinct(paste0(inst_id_receiver, inst_id_sender)), by =c('uni_pub_r','uni_pub_s','type_r','type_s') ] %>%
-  .[size_fe >=250 & (size_r >=5 & size_s >=5 | is.na(size_r) | is.na(size_s))
+  .[size_fe >=250 #& size_r >=5 & size_s >=5 
     ] %>%
   .[ !is.na(type_s) & !is.na(type_r)
-     & type_s %in% c('facility','abroad',"entrant"#,'government','company'
-                   ) & type_r %in% c('facility','abroad'#,'government','company'
-                                     )
+    # & type_s %in% c('facility','abroad',"entrant"#,'government','company'
+    #               ) & type_r %in% c('facility','abroad'#,'government','company'
+    #                                 )
     # &  (uni_pub_r + cnrs_r <2) &  (uni_pub_s + cnrs_s <2) 
     # &  !str_detect(parent_r, inst_id_sender) & !str_detect(parent_s, inst_id_receiver)
      ] %>%
-  .[, entry_year_r := min(year), by = inst_id_receiver] %>%
-  .[, entry_year_s := min(year), by = inst_id_sender] %>%
+  .[, ":="(entry_year_r = min(year),
+           size_r_03 = max(size_r*as.numeric(year==2003))), by = inst_id_receiver] %>%
+  .[, ":="(entry_year_s = min(year),
+           size_s_03 = max(size_s*as.numeric(year==2003))), by = inst_id_sender] %>%
   .[, entry_year_pair := 
       ifelse(entry_year_r<=entry_year_s, entry_year_s, entry_year_r),  by = c('inst_id_sender','inst_id_receiver')] %>%
   .[, unit := paste0(inst_id_sender, '_to_',inst_id_receiver)] %>%
-  .[, n_obs := n_distinct(year), by = unit]
+  .[, n_obs := n_distinct(year), by = unit] %>%
+  .[entry_year_pair <=2003]
+
+reg_df <- reg_df[size_r_03 >=5 & size_s_03 >= 5]
 
 nrow(unique(reg_df[, list(unit)]))
 
@@ -206,8 +227,9 @@ all_combinations <- CJ(
   year = seq(min(reg_df$year), max(reg_df$year))
 )
 
-reg_df <- reg_df[all_combinations, on = .(unit, year)]
+reg_df <- merge(reg_df, all_combinations, by = c('unit', 'year'), all.x = TRUE, all.y = TRUE)
 setorder(reg_df, unit, year)
+ggplot(reg_df[,.N, by='year'])+geom_line(aes(x=year, y=N))
 
 cols_to_fill_down_r <-c( "name_r","city_r","fused_r", "uni_pub_r"         
                       ,"cnrs_r","type_r","main_topic_r","topic_share_r",
@@ -218,11 +240,13 @@ cols_to_fill_down_s <-c(  "name_s","city_s","fused_s","uni_pub_s", "cnrs_s"
                         "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','idex_s','size_s'
                         )
 
-unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs')
-cols_to_fill_0 <- cols_to_summarize
+unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs', 'size_r_03','size_s_03')
+cols_to_fill_0 <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
 reg_df <- reg_df %>%
-  .[, (unit_cols) := lapply(.SD, zoo::na.locf, na.rm = FALSE), 
-    by = unit, .SDcols =unit_cols] %>%
+  .[, (unit_cols) := lapply(.SD, \(x)
+                            zoo::na.locf(zoo::na.locf(x, na.rm = FALSE), fromLast = TRUE)
+  ), 
+    by = "unit", .SDcols =unit_cols] %>%
   .[year >= entry_year_pair] %>%
   .[, (cols_to_fill_down_r) := lapply(.SD, function(x) zoo::na.locf(x, na.rm = FALSE)), 
              by = inst_id_receiver, .SDcols = cols_to_fill_down_r] %>%
@@ -242,7 +266,8 @@ reg_df <- reg_df %>%
             has_idex_s = ifelse(!is.na(idex_s) & idex_s != 'no_idex' & !str_detect(idex_s, 'annulee'), 1, 0  ),
             idex_annulee_r = ifelse(!is.na(idex_r) & str_detect(idex_r, 'annulee'), 1, 0  ),
             idex_annulee_s = ifelse(!is.na(idex_s) & str_detect(idex_s, 'annulee'), 1, 0  )
-  )]
+  )] %>%
+  .[year >= 2003]
 rm(ds,all_combinations)
 gc()
 
@@ -257,62 +282,155 @@ reg_df[, .(n_obs = n_distinct(paste0(inst_id_receiver, inst_id_sender)),
 reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(N)]
 
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
-list_feols <- list()
+reg_df <- reg_df %>%
+  .[, ":="(max_pair = max(movers_w), n_y = n_distinct(year)), by = c('inst_id_sender','inst_id_receiver')] %>%
+  .[year >=2003 & max_pair >0.2 & n_y >=3]
+
+
+# III.bis Sample desc stats -----------------------------------------------
+
+
+cols_to_summarize <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
+
+ggplot(reg_df%>%
+         .[year >=1997] %>%
+         .[year >=1997 & !(inst_id_sender == 'abroad' & inst_id_receiver == 'abroad')
+           & !(inst_id_sender == 'entrant' & inst_id_receiver == 'abroad')  ]%>%
+         .[(!is.na(uni_pub_r) | inst_id_receiver == 'abroad') | (!is.na(uni_pub_s) | inst_id_sender == 'abroad') &  
+             (inst_id_sender!= 'entrant')] %>%
+         .[, ':='(uni_pub_r = fifelse(is.na(uni_pub_r), 0, uni_pub_r),
+                  uni_pub_s = fifelse(is.na(uni_pub_s), 0, uni_pub_s)
+         )]%>%
+         # .[type_s == 'facility' & type_r == 'facility']%>%
+         .[, lapply(.SD, sum, na.rm = T), by = c('uni_pub_r','uni_pub_s','year'),.SDcols = cols_to_summarize] %>%
+         .[, move := case_when(uni_pub_r ==1 & uni_pub_s ==1 ~ 'Inside public universities',
+                               uni_pub_r ==0 &  uni_pub_s ==1~ 'From university to outside',
+                               uni_pub_r ==1 &  uni_pub_s ==0~ 'From outside to university',
+                               uni_pub_r ==0 &  uni_pub_s ==0~ 'From outside to outside')]
+)+
+  geom_line(aes(x=year,y=movers_w, color = move))
+
+reg_df_desc <- reg_df%>%
+  .[!is.na(type_r) & year >=1997 &
+      !(inst_id_sender == 'abroad' & inst_id_receiver == 'abroad') 
+    & !(inst_id_sender== 'entrant' # & inst_id_receiver == 'abroad'
+    ) 
+  ] %>%
+  .[(!is.na(uni_pub_r) | inst_id_receiver == 'abroad') | (!is.na(uni_pub_s) | inst_id_sender == 'abroad')] %>%
+  .[, ':='(uni_pub_r = fifelse(is.na(uni_pub_r), 0, uni_pub_r),
+           uni_pub_s = fifelse(is.na(uni_pub_s), 0, uni_pub_s)
+  )]%>%
+  #.[type_s %in% c('facility','entrant') & type_r == 'facility']%>%
+  .[, lapply(.SD, mean, na.rm = T), by = c('uni_pub_r','uni_pub_s','year'),.SDcols = cols_to_summarize] %>%
+  .[, move := case_when(uni_pub_r ==1 & uni_pub_s ==1 ~ 'Inside public universities',
+                        uni_pub_r ==0 &  uni_pub_s ==1~ 'From university to outside',
+                        uni_pub_r ==1 &  uni_pub_s ==0~ 'From outside to university',
+                        uni_pub_r ==0 &  uni_pub_s ==0~ 'From outside to outside',
+                        .default = 'From outside to outside')]
+
+p <-ggplot(reg_df_desc
+)+
+  geom_line(aes(x=year,y=movers_w, color = move), linewidth = 0.5)+
+  scale_color_manual(values = c('black','seagreen','firebrick','steelblue'))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("D:\\panel_fr_res\\desc_stats\\within_sample\\avg_flows.png", p)
+
+
+p <-ggplot(reg_df_desc
+)+
+  geom_line(aes(x=year,y=movers_w_foreign_entrant, color = move), linewidth = 0.5)+
+  scale_color_manual(values = c('black','seagreen','firebrick','steelblue'))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("D:\\panel_fr_res\\desc_stats\\within_sample\\avg_movers_w_foreign_entrant.png", p)
+
+
+# IV) Regressions ---------------------------------------------------------
+
+list_event_study <- list()
+list_event_study_simple <- list()
 outcomes <- colnames(reg_df)[str_detect(colnames(reg_df), 'movers_w')]
+
+
+formula_event_study <- paste0( ' ~ '
+                              ,'  i(year, uni_pub_r,                                        2008) '
+                              ,'+ i(year, uni_pub_s,                                        2008) '
+                              ,'+ i(year, uni_pub_r*uni_pub_s,                              2008) '
+                              ,'+ i(year, uni_pub_r*abroad_s,                               2008)'
+                              ,'+ i(year, uni_pub_s*abroad_r,                               2008)'
+                              #,'+ i(year, uni_pub_r*entrant,                                2008)'
+                              ,'+ i(year, has_idex_r*(1-uni_pub_r),                         2008)'
+                              ,'+ i(year, has_idex_s*(1-uni_pub_s),                         2008)'
+                              ,'+ i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)'
+                              ,'+ i(year, has_idex_r*(1-uni_pub_r)*abroad_s,                2008)'
+                              ,'+ i(year, has_idex_s*(1-uni_pub_s)*abroad_r,                2008)'
+                              ,'+ i(year, has_idex_r*uni_pub_r,                             2008)'
+                              ,'+ i(year, has_idex_s*uni_pub_s,                             2008)'
+                              ,'+ i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,        2008)'
+                              ,'+ i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)'
+                              ,'+ i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)'
+)
+fe_large <- paste0(
+                              
+                              #,"+ size_r*as.factor(year)+size_s*as.factor(year)"
+                              "|" 
+                              ,"    inst_id_receiver + inst_id_sender + year"
+                              ,"  + unit"
+                              ,"  + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year"
+                              ,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
+                              #,"  + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year"
+                              ,"   + type_r_year + type_s_year + type_s_type_r_year"
+                              ##,"   + public_r^year + public_s^year"
+                              ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
+                              ," +size_r_03^year + size_s_03^year"
+                              #," +city_r^year + city_s^year + city_r^city_s^year"
+)
+fe_min <- '| inst_id_receiver + inst_id_sender + year + unit'
+
+for(var in outcomes){
+  
+  event_study_var <- feols(as.formula(paste0(var, formula_event_study, fe_min))
+                           , data = reg_df %>%
+                             .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] 
+                           #,weights = reg_df$size_r + reg_df$size_r
+                           ,cluster = c('unit')
+  )
+  list_event_study_simple[[var]] <- event_study_var
+  
+  
+}
 
 for(var in outcomes){
 
-test_feols <- feols(as.formula(paste0(var, ' ~ '
-                    ,'  i(year, uni_pub_r,                                        2008) '
-                    ,'+ i(year, uni_pub_s,                                        2008) '
-                    ,'+ i(year, uni_pub_r*uni_pub_s,                              2008) '
-                    ,'+ i(year, uni_pub_r*abroad_s,                               2008)'
-                    ,'+ i(year, uni_pub_s*abroad_r,                               2008)'
-                    #,'+ i(year, uni_pub_r*entrant,                                2008)'
-                    ,'+ i(year, has_idex_r*(1-uni_pub_r),                         2008)'
-                    ,'+ i(year, has_idex_s*(1-uni_pub_s),                         2008)'
-                    ,'+ i(year, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s),2008)'
-                    ,'+ i(year, has_idex_r*(1-uni_pub_r)*abroad_s,                2008)'
-                    ,'+ i(year, has_idex_s*(1-uni_pub_s)*abroad_r,                2008)'
-                    ,'+ i(year, has_idex_r*uni_pub_r,                             2008)'
-                    ,'+ i(year, has_idex_s*uni_pub_s,                             2008)'
-                    ,'+ i(year, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,        2008)'
-                    ,'+ i(year, has_idex_r*uni_pub_r*abroad_s,                    2008)'
-                    ,'+ i(year, has_idex_s*uni_pub_s*abroad_r,                    2008)'
-                    
-                    #,"+ size_r*as.factor(year)+size_s*as.factor(year)"
-                    ,"|" 
-                  ,"    inst_id_receiver + inst_id_sender + year"
-                  ,"  + inst_id_receiver^inst_id_sender"
-                  ,"  + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year"
-                  ,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
-                  ,"  + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year"
-                  ,"   + type_r_year + type_s_year + type_s_type_r_year"
-                  ,"   + public_r^year + public_s^year"
-                  ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
-                  ," +size_r^year + size_s^year"
-                  ))
-                   #  +city_r^year + city_s^year + city_r^city_s^year
-                 
+event_study_var <- feols(as.formula(paste0(var, formula_event_study, fe_large))
                     , data = reg_df %>%
-                      .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)]
-                   %>% .[year >= 2003 & 
-                           type_r %in% c('facility','abroad') 
-                                      & type_s %in% c('facility','entrant','abroad')
-                         ]
+                      .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] 
                     #,weights = reg_df$size_r + reg_df$size_r
-                    ,cluster = c('inst_id_sender','inst_id_receiver')
+                    ,cluster = c('unit')
                     )
-list_feols[[var]] <- test_feols
+list_event_study[[var]] <- event_study_var
   
 
 }
+
+
 
 outcomes_dict <- c("movers_w"                  =     'Total flows',
                    "movers_w_junior"           =     'Junior researcher flows',
                    "movers_w_senior"           =     'Senior researcher flows',
                    "movers_w_medium"           =     'Medium researcher flows',
-                   "movers_w_own_entrant_r"    =     'Exiting from entry institution',
+                   "movers_w_own_entrant_r"    =     'Returning to entry institution',
                    "movers_w_own_entrant_s"    =     'Exiting from entry institution',
                    "movers_w_foreign_entrant"  =     'Foreign entrant flows',
                    
@@ -337,20 +455,125 @@ outcomes_dict <- c("movers_w"                  =     'Total flows',
                    "has_idex_s*uni_pub_s*abroad_r"               =      ' abroad from idex public universities Idex'            
                    
 )
-for(var in names(list_feols)){
+for(var in names(list_event_study)){
 
-  var_path = paste0("D:\\panel_fr_res\\lab_results\\", var)
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\full\\", var)
     if (!file.exists(var_path)){
       dir.create(var_path, recursive = TRUE)
     }
-  formula_normalized = str_replace_all(as.character(list_feols[[var]]$fml)[3], '\\n|\\s', '')
+  formula_normalized = str_replace_all(as.character(list_event_study[[var]]$fml)[3], '\\n|\\s', '')
   list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
   for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
-    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], "_facility_wUMR.pdf"))
-    iplot(test_feols, i.select=i_select, 
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(event_study_var, i.select=i_select, 
                  main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
                 )
     dev.off()
+    iplot(list_event_study[[var]], i.select=i_select, 
+                            main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+                           )
+  }
+  
+  
+  
+}
+
+for(var in names(list_event_study_simple)){
+  
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\full_no_fe\\", var)
+  if (!file.exists(var_path)){
+    dir.create(var_path, recursive = TRUE)
+  }
+  formula_normalized = str_replace_all(as.character(list_event_study_simple[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(list_event_study_simple[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+    dev.off()
+    iplot(list_event_study_simple[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+  }
+}
+
+
+# III.c Subsets -----------------------------------------------------------
+
+list_event_study_facility <- list()
+for(var in outcomes[1]){
+  
+  event_study_var <- feols(as.formula(paste0(var, formula_event_study, fe_large))
+                           , data = reg_df %>%
+                             .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
+                             .[type_r %in% c('abroad','facility')
+                               & type_s %in% c('abroad','facility')]
+                           
+                           #,weights = reg_df$size_r + reg_df$size_r
+                           ,cluster = c('unit')
+  )
+  list_event_study_facility[[var]] <- event_study_var
+  
+  
+}
+for(var in names(list_event_study_facility)){
+  
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\facility\\", var)
+  if (!file.exists(var_path)){
+    dir.create(var_path, recursive = TRUE)
+  }
+  formula_normalized = str_replace_all(as.character(list_event_study_facility[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(list_event_study_facility[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+    dev.off()
+    iplot(list_event_study_facility[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+  }
+  
+  
+  
+}
+
+list_event_study_university <- list()
+for(var in outcomes[1]){
+  
+  event_study_var <- feols(as.formula(paste0(var, formula_event_study, fe_large))
+                           , data = reg_df %>%
+                             .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
+                             .[type_r %in% c('abroad','education','facility')
+                               & type_s %in% c('abroad','education','facility')]
+                           
+                           #,weights = reg_df$size_r + reg_df$size_r
+                           ,cluster = c('unit')
+  )
+  list_event_study_university[[var]] <- event_study_var
+  
+  
+}
+
+for(var in names(list_event_study_university)){
+  
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\education\\", var)
+  if (!file.exists(var_path)){
+    dir.create(var_path, recursive = TRUE)
+  }
+  formula_normalized = str_replace_all(as.character(list_event_study_university[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(list_event_study_university[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+    dev.off()
+    iplot(list_event_study_university[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
   }
   
   
@@ -358,77 +581,60 @@ for(var in names(list_feols)){
 }
 
 
-
-test_feols_fe <- fixef(test_feols)
+event_study_var_fe <- fixef(event_study_var)
 
 ###
-test_feols_fe$`type_s_type_r_year`
+event_study_var_fe$`type_s_type_r_year`
 
 
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_facility_wUMR.pdf")
-iplot(test_feols, i.select=1, main = 'Universities as destination')
-dev.off()
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_s_facility_wUMR.pdf")
-iplot(test_feols, i.select=2, main = 'Universities as origin')
-dev.off()
+# IV.bis Aggregate regressions --------------------------------------------
+list_aggregate_reg <- list()
+list_aggregate_reg_simple <- list()
 
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_rs_facility_wUMR.pdf")
-iplot(test_feols, i.select=3, main = 'Between-university flows')
-dev.off()
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_abroad_s_facility_wUMR.pdf")
-iplot(test_feols, i.select=4, main = 'Flows to universities from abroad')
-dev.off()
+formula_agg <- str_replace_all(str_replace_all(formula_event_study, '\\(year','\\(post'), '\\d{4}\\)', '0\\)')
+for(var in outcomes[1]){
+  print(sprintf('Treating variable : %s', var))
+  agg_reg_var_simple <- feols(as.formula(paste0(var, formula_agg, fe_min))
+                              , data = reg_df %>%
+                         .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
+                         .[, post := ifelse(year >=2008,1,0) ] 
+                       #,weights = reg_df$size_r + reg_df$size_r
+                       ,cluster = c('unit'), demeaned = TRUE, lean = FALSE
+  )
+  list_aggregate_reg_simple[[var]] <- agg_reg_var_simple
+  print(sprintf('Treated variable : %s', var))
+  
+}
 
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_s_abroad_r_facility_wUMR.pdf")
-iplot(test_feols, i.select=5, main = 'Flows abroad from universities')
-dev.off()
+for(var in outcomes){
+  print(sprintf('Treating variable : %s', var))
+  agg_reg_var <- feols(as.formula(paste0(var, formula_agg, fe_large))
+                           , data = reg_df %>%
+                             .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
+                         .[, post := ifelse(year >=2008,1,0) ] 
+                           #,weights = reg_df$size_r + reg_df$size_r
+                           ,cluster = c('unit'), demeaned = TRUE, lean = FALSE
+  )
+  list_aggregate_reg[[var]] <- agg_reg_var
+  print(sprintf('Treated variable : %s', var))
+  
+}
+
+pre_mean <- apply(reg_df %>%
+  .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
+  .[, post := ifelse(year >=2008,1,0) ] %>%
+  .[year >=2003 & year <2007] %>%
+  .[, lapply(.SD, mean, na.rm=T), .SD = outcomes], 1, as.vector)
+
+etable(list_aggregate_reg,file = "D:\\panel_fr_res\\lab_results\\full\\att_table_fe.tex" ,replace = TRUE, 
+       extralines = c('Pre.Mean.Var', pre_mean[,1] ) )
 
 
-pdf("D:\\panel_fr_res\\lab_results\\uni_pub_r_entrant_s_facility_wUMR.pdf")
-iplot(test_feols, i.select=6, main = 'Flow of entrants to universities')
-dev.off()
-
-
-test_agg <- feols(movers_w ~ 
-                    i(post, uni_pub_r*(1-entrant),                             0)
-                  + i(post, uni_pub_s,                                         0) 
-                  + i(post, uni_pub_r*uni_pub_s,                               0) 
-                  #+ i(post, uni_pub_r*abroad_s,                                0)
-                  #+ i(post, uni_pub_s*abroad_r,                                0)
-                  + i(post, uni_pub_r*entrant,                                 0)
-                  + i(post, has_idex_r*(1-uni_pub_r),                          0)
-                  + i(post, has_idex_s*(1-uni_pub_s),                          0)
-                  + i(post, has_idex_r*(1-uni_pub_r)*has_idex_s*(1-uni_pub_s), 0)
-                  + i(post, has_idex_r*(1-uni_pub_r)*abroad_s,                 0)
-                  + i(post, has_idex_s*(1-uni_pub_s)*abroad_r,                 0)
-                  + i(post, has_idex_r*(1-uni_pub_r)*entrant,                  0)
-                  + i(post, has_idex_r*uni_pub_r,                              0)
-                  + i(post, has_idex_s*uni_pub_s,                              0)
-                  + i(post, has_idex_r*uni_pub_r*has_idex_s*uni_pub_s,         0)
-                  + i(post, has_idex_r*uni_pub_r*abroad_s,                     0)
-                  + i(post, has_idex_s*uni_pub_s*abroad_r,                     0)
-                  + i(post, has_idex_r*uni_pub_r*entrant,                      0)
-                  #+ size_r*as.factor(year)+size_s*as.factor(year)
-                  | 
-                    inst_id_receiver + inst_id_sender + year
-                  + inst_id_receiver^inst_id_sender
-                  #+ cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year
-                  #+ fused_r^year + fused_s^year + fused_r^fused_s^year
-                  #+ type_r_year + type_s_year + type_s_type_r_year
-                  #+ main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year
-                  , data = reg_df %>%
+out <- dyadRobust(fit = agg_reg_var,
+                  dat = reg_df %>%
                     .[, entrant:=fifelse(inst_id_sender=='entrant', 1, 0)] %>%
-                    .[, post := as.numeric(year >2008)]%>%
-                    .[year >= 2003 &
-                        type_r %in% c('facility') 
-                      & type_s %in% c('facility','entrant')]
-                  ,cluster = c('inst_id_sender','inst_id_receiver')
-                  
-                  )
-etable(test_agg)
-gc()
-
-
-etable(test_agg, file = "D:\\panel_fr_res\\lab_results\\lab_mobility_agg")
-
+                    .[, post := ifelse(year >=2008,1,0) ],
+                  dyadid = "unit",
+                  egoid = "inst_id_receiver",
+                  alterid = "inst_id_sender")
   

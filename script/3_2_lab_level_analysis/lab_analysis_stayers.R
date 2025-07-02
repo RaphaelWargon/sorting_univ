@@ -1,52 +1,72 @@
-ds_unilat <- ds %>%
-  filter(inst_id_sender == inst_id_receiver) %>%
-  dplyr::select(inst_id_receiver,year, ends_with('_r'), starts_with('stayer'), starts_with('total')) %>%
-  distinct() %>% group_by(inst_id_receiver) %>%
-  mutate(first_y_lab = min(year), last_y_lab = max(year)) %>%
-  ungroup()
+rm(list = ls())
+gc()
+library('pacman')
 
-ds_unilat<- as.data.table(ds_unilat)
+p_load('arrow'
+       ,'data.table'
+       ,'fixest'
+       ,'tidyverse'
+       ,'binsreg',
+       'DescTools',
+       'cowplot')
+wins_vars <- function(x, pct_level = 0.025){
+  if(is.numeric(x)){
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+  } else {x}
+}
+
+
+inputpath <- "D:\\panel_fr_res\\unilateral_inst_level_flows.parquet"
+
+ds_unilat <- as.data.table(open_dataset(inputpath)) %>%
+  .[, ':='(first_y_lab = min(year), last_y_lab = max(year)), by ='inst_id']
 
 
 
 all_combinations <- CJ(
-  inst_id_receiver = unique(ds_unilat$inst_id_receiver),
+  inst_id = unique(ds_unilat$inst_id),
   year = seq(min(ds_unilat$year), max(ds_unilat$year))
 )
-reg_df <- ds_unilat[all_combinations, on = .(inst_id_receiver, year)]
-cols_to_fill_down_r <-c( "name_r","city_r","fused_r", "uni_pub_r"         
-                         ,"cnrs_r","type_r","main_topic_r","topic_share_r","size_r"
-                        , "ecole_r",'universite_r','public_r','prive_r','idex_r', 'first_y_lab','last_y_lab'
-)
-cols_to_win <- colnames(ds_unilat)[str_detect(colnames(ds_unilat),'stayer|total')]
-reg_df <- reg_df %>%
-  .[, (cols_to_fill_down_r) := lapply(.SD, function(x) zoo::na.locf(x, na.rm = FALSE)), 
-    by = inst_id_receiver, .SDcols = cols_to_fill_down_r] %>%
-  .[, ':='( has_idex_r = ifelse(!is.na(idex_r) & idex_r != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  ),
-            idex_annulee_r = ifelse(!is.na(idex_r) & str_detect(idex_r, 'annulee'), 1, 0  )
-  )] %>%
-  .[, (cols_to_win):= lapply(.SD, wins_vars), .SDcols = cols_to_win]
-
-ggplot(reg_df %>% .[ first_y_lab <=2003] %>% .[, .(N = n_distinct(inst_id_receiver)), by = 'year'])+
+reg_df_unilat <- merge(ds_unilat, all_combinations, by = c("inst_id", "year"), all.x=TRUE, all.y = TRUE)
+ggplot(reg_df_unilat %>% .[, .(N = n_distinct(inst_id)), by = 'year'])+
   geom_line(aes(x=year, y= N))
 
+cols_to_fill_down <-c("name","city","fused","uni_pub", "cnrs", "type","main_topic",
+                        "idex", "type_fr", "secteur", "prive",'first_y_lab','last_y_lab')
+cols_to_win <- colnames(ds_unilat)[str_detect(colnames(ds_unilat),'stayer|total|mover')]
 
-ggplot(reg_df %>% .[ first_y_lab <=2003] %>% .[, .(N = n_distinct(inst_id_receiver)), by = 'last_y_lab'])+
-  geom_line(aes(x=last_y_lab, y= N))
+reg_df_unilat <- reg_df_unilat %>%
+  .[, (cols_to_fill_down) := lapply(.SD, \(x)
+                                      zoo::na.locf(zoo::na.locf(x, na.rm = FALSE), fromLast = TRUE)),
+    by = inst_id, .SDcols = cols_to_fill_down] %>%
+  .[, ':='( has_idex = ifelse(!is.na(idex ) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  ),
+            idex_annulee = ifelse(!is.na(idex ) & str_detect(idex, 'annulee'), 1, 0  )
+  )] %>%
+  .[, (cols_to_win):= lapply(.SD, wins_vars), .SDcols = cols_to_win]%>% 
+  .[, size_03 := max(total*as.numeric(year==2003), na.rm=T), by = inst_id ] %>%
+  .[ first_y_lab <=2003 & first_y_lab <= year & year >= 1997] 
 
+ggplot(reg_df_unilat  %>% .[, .(N = n_distinct(inst_id)), by = 'year'])+
+  geom_line(aes(x=year, y= N))
 
-p <-ggplot(reg_df_subset%>%
-             .[year >=1997 & !(inst_id_receiver == 'abroad')# & first_y_lab <=2003
+ggplot(unique(reg_df_unilat  %>% .[, .(inst_id, size_03, uni_pub)]))+
+  geom_histogram(aes(x=size_03, fill = as.factor(uni_pub)), position='dodge')
+
+#reg_df_unilat <- reg_df_unilat %>% .[year >= 2003]
+
+p <-ggplot(reg_df_unilat%>%
+             .[!(inst_id == 'abroad')# & first_y_lab <=2003
              ] %>%
-             .[!is.na(uni_pub_r) ] %>%
-             .[, ':='(uni_pub_r = fifelse(is.na(uni_pub_r), 0, uni_pub_r)
+             .[!is.na(uni_pub ) ] %>%
+             .[, ':='(uni_pub = fifelse(is.na(uni_pub ), 0, uni_pub )
              )]%>%
-             .[, move := case_when(uni_pub_r ==1  ~ 'Inside public universities',
-                                   uni_pub_r ==0 ~ 'Outside public universities',
+             .[, move := case_when(uni_pub ==1  ~ 'Inside public universities',
+                                   uni_pub ==0 ~ 'Outside public universities',
                                    .default = 'With several affilitions')]%>%
              .[, lapply(.SD, mean, na.rm = T), by = c('move','year'),.SDcols = cols_to_win] 
 )+
-  geom_line(aes(x=year,y=total_w_foreign_entrant, color = move))+
+  geom_line(aes(x=year,y=total_w, color = move))+
   scale_color_manual(values = c('steelblue','black'))+
   geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
   theme_bw()+ 
@@ -55,19 +75,115 @@ p <-ggplot(reg_df_subset%>%
   labs(title = '')+xlab('Year')+ylab('')
 p
 
-reg_df_subset <- reg_df[year >= 2003 & inst_id_receiver != 'I1294671590'] %>%
-  .[type_r%in%c('facility') ]
-table(reg_df_subset$uni_pub_r)
-test_feols <- feols( total_w ~
-                       i(year, uni_pub_r, 2007) +
-                       i(year, has_idex_r, 2007) + 
-                       i(year, has_idex_r*uni_pub_r, 2007)
-                     + i(year, fused_r, 2007)
-                     | 
-                       inst_id_receiver + year^main_topic_r +cnrs_r^year +ecole_r^year+prive_r^year+first_y_lab^year
-                    ,reg_df_subset )
-iplot(test_feols)
-iplot(test_feols, i.select=2)
-iplot(test_feols, i.select=3)
-iplot(test_feols, i.select=4)
+reg_df_subset <- reg_df_unilat[inst_id != 'I1294671590'] %>%
+  .[type%in%c('facility') 
+    & main_topic %in% c(
+    "Engineering",
+    "Computer Science",                            
+    "Biochemistry, Genetics and Molecular Biology",
+    "Agricultural and Biological Sciences",        
+    #"Social Sciences",
+    #"Economics, Econometrics and Finance",         
+    "Medicine",
+    "Earth and Planetary Sciences",                
+    "Environmental Science",
+    "Chemical Engineering",                        
+    "Mathematics",
+    "Materials Science",                           
+    "Physics and Astronomy", 
+    "Chemistry",                                   
+     "Neuroscience", 
+    #"Arts and Humanities",                         
+    #"Business, Management and Accounting", 
+    "Energy",                                      
+    #"Psychology", 
+    "Immunology and Microbiology",                 
+    #"", 
+    "Pharmacology, Toxicology and Pharmaceutics",  
+    #"Decision Sciences", 
+     "Nursing" 
+    )
+    ] %>%.[size_03 <= 600& size_03 >= 10]
+table(unique(reg_df_subset[, list(inst_id, uni_pub)])$uni_pub)
 
+hist(unique(reg_df_subset[, list(inst_id, size_03)])$size_03)
+
+test_feols <- fepois( total_w ~
+                       i(year, uni_pub, 2007) +
+                       i(year, has_idex, 2007)  
+                      + i(year, has_idex*uni_pub, 2007)
+                     + i(year, fused, 2007)
+                     #+ i(year, fused*uni_pub, 2007)
+                     + i(year, cnrs, 2007)
+                     #+ i(year, cnrs*uni_pub, 2007)
+                     | 
+                       inst_id + year^main_topic+type^year +ecole^year+prive^year+first_y_lab^year+size_03*year
+                    ,reg_df_subset )
+
+
+outcomes_dict <- c(
+                   "total_w"                  =     'Number of researchers',
+                   "total_w_junior"           =     'Number of junior researcher',
+                   "total_w_senior"           =     'Number of senior researcher',
+                   "total_w_medium"           =     'Number of medium researcher',
+                   "total_w_foreign_entrant"  =     'Number of foreign entrant',
+
+                   "stayers_w"                  =     'Continuing researchers',
+                   "stayers_w_junior"           =     'Continuing junior researcher',
+                   "stayers_w_senior"           =     'Continuing senior researcher',
+                   "stayers_w_medium"           =     'Continuing medium researcher',
+                   "stayers_w_foreign_entrant"  =     'Continuing foreign entrant',
+                   
+                   "movers_w"                  =     'Total flows',
+                   "movers_w_junior"           =     'Junior researcher flows',
+                   "movers_w_senior"           =     'Senior researcher flows',
+                   "movers_w_medium"           =     'Medium researcher flows',
+                   "movers_w_own_entrant_r"    =     'Exiting from entry institution',
+                   "movers_w_own_entrant_s"    =     'Exiting from entry institution',
+                   "movers_w_foreign_entrant"  =     'Foreign entrant flows',
+                   
+                   "uni_pub"                   =      ' in universities',
+                   "has_idex"                  =      ' in Idex',
+                   "has_idex*uni_pub"          =      ' in Idex public universities',
+                   "cnrs"                      =      ' in CNRS',   
+                   "cnrs*uni_pub"              =      ' in public universities with CNRS',
+                   "fused"                     =      ' in fused HEI',   
+                   "fused*uni_pub"             =      ' in fused public universities'
+)
+formula_normalized = str_replace_all(as.character(test_feols$fml)[3], '\\n|\\s', '')
+list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  
+for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    iplot(test_feols, i.select=i_select, 
+          main =  paste0(outcomes_dict[["total_w"]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+  }
+
+ggplot(reg_df_unilat %>%
+         .[, type_reg := case_when(
+           has_idex*uni_pub*cnrs==1 ~"IDEX uni CNRS",
+           has_idex*uni_pub ==1 ~ "IDEX uni",
+           uni_pub ==1 ~ "uni",
+           has_idex*cnrs==1~"IDEX CNRS",
+           uni_pub*cnrs==1 ~"uni CNRS",
+           has_idex==1 ~"IDEX",
+           cnrs==1 ~"CNRS",
+           .default = 'none'
+           )] %>%
+         .[, lapply(.SD, median, na.rm=T), by = c('type_reg','year'),.SD = cols_to_win])+
+  geom_line(aes(x=year, y=total_w,colour = type_reg))
+
+
+ggplot(reg_df_unilat %>%
+         .[, type_reg := case_when(
+           has_idex*uni_pub*cnrs==1 ~"IDEX uni CNRS",
+           has_idex*uni_pub ==1 ~ "IDEX uni",
+           uni_pub ==1 ~ "uni",
+           has_idex*cnrs==1 ~"IDEX CNRS",
+           uni_pub*cnrs==1 ~"uni CNRS",
+           has_idex==1 ~"IDEX",
+           cnrs==1 ~"CNRS",
+           .default = 'none'
+         )] %>%
+         .[, .N, by = c('type_reg','year')])+
+  geom_line(aes(x=year, y=N,colour = type_reg))
