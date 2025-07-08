@@ -22,6 +22,7 @@ inputpath <- "D:\\panel_fr_res\\unilateral_inst_level_flows.parquet"
 ds_unilat <- as.data.table(open_dataset(inputpath)) %>%
   .[, ':='(first_y_lab = min(year), last_y_lab = max(year)), by ='inst_id']
 
+test <- unique(ds_unilat[first_y_lab >2003][,  list(name, inst_id,type_fr,type)][type!='company'])
 
 
 all_combinations <- CJ(
@@ -77,87 +78,140 @@ p
 
 reg_df_subset <- reg_df_unilat[inst_id != 'I1294671590'] %>%
   .[type%in%c('facility') 
-    & main_topic %in% c(
-    "Engineering",
-    "Computer Science",                            
-    "Biochemistry, Genetics and Molecular Biology",
-    "Agricultural and Biological Sciences",        
-    #"Social Sciences",
-    #"Economics, Econometrics and Finance",         
-    "Medicine",
-    "Earth and Planetary Sciences",                
-    "Environmental Science",
-    "Chemical Engineering",                        
-    "Mathematics",
-    "Materials Science",                           
-    "Physics and Astronomy", 
-    "Chemistry",                                   
-     "Neuroscience", 
-    #"Arts and Humanities",                         
-    #"Business, Management and Accounting", 
-    "Energy",                                      
-    #"Psychology", 
-    "Immunology and Microbiology",                 
-    #"", 
-    "Pharmacology, Toxicology and Pharmaceutics",  
-    #"Decision Sciences", 
-     "Nursing" 
-    )
+   # & main_topic %in% c(
+   # "Engineering",
+   # "Computer Science",                            
+   # "Biochemistry, Genetics and Molecular Biology",
+   # "Agricultural and Biological Sciences",        
+   # #"Social Sciences",
+   # #"Economics, Econometrics and Finance",         
+   # "Medicine",
+   # "Earth and Planetary Sciences",                
+   # "Environmental Science",
+   # "Chemical Engineering",                        
+   # "Mathematics",
+   # "Materials Science",                           
+   # "Physics and Astronomy", 
+   # "Chemistry",                                   
+   #  "Neuroscience", 
+   # #"Arts and Humanities",                         
+   # #"Business, Management and Accounting", 
+   # "Energy",                                      
+   # #"Psychology", 
+   # "Immunology and Microbiology",                 
+   # #"", 
+   # "Pharmacology, Toxicology and Pharmaceutics",  
+   # #"Decision Sciences", 
+   #  "Nursing" 
+   # )
     ] %>%.[size_03 <= 600& size_03 >= 10]
 table(unique(reg_df_subset[, list(inst_id, uni_pub)])$uni_pub)
 
 hist(unique(reg_df_subset[, list(inst_id, size_03)])$size_03)
 
-test_feols <- fepois( total_w ~
-                       i(year, uni_pub, 2007) +
-                       i(year, has_idex, 2007)  
-                      + i(year, has_idex*uni_pub, 2007)
-                     + i(year, fused, 2007)
-                     #+ i(year, fused*uni_pub, 2007)
-                     + i(year, cnrs, 2007)
-                     #+ i(year, cnrs*uni_pub, 2007)
-                     | 
-                       inst_id + year^main_topic+type^year +ecole^year+prive^year+first_y_lab^year+size_03*year
-                    ,reg_df_subset )
-
 
 outcomes_dict <- c(
-                   "total_w"                  =     'Number of researchers',
-                   "total_w_junior"           =     'Number of junior researcher',
-                   "total_w_senior"           =     'Number of senior researcher',
-                   "total_w_medium"           =     'Number of medium researcher',
-                   "total_w_foreign_entrant"  =     'Number of foreign entrant',
-
-                   "stayers_w"                  =     'Continuing researchers',
-                   "stayers_w_junior"           =     'Continuing junior researcher',
-                   "stayers_w_senior"           =     'Continuing senior researcher',
-                   "stayers_w_medium"           =     'Continuing medium researcher',
-                   "stayers_w_foreign_entrant"  =     'Continuing foreign entrant',
-                   
-                   "movers_w"                  =     'Total flows',
-                   "movers_w_junior"           =     'Junior researcher flows',
-                   "movers_w_senior"           =     'Senior researcher flows',
-                   "movers_w_medium"           =     'Medium researcher flows',
-                   "movers_w_own_entrant_r"    =     'Exiting from entry institution',
-                   "movers_w_own_entrant_s"    =     'Exiting from entry institution',
-                   "movers_w_foreign_entrant"  =     'Foreign entrant flows',
-                   
-                   "uni_pub"                   =      ' in universities',
-                   "has_idex"                  =      ' in Idex',
-                   "has_idex*uni_pub"          =      ' in Idex public universities',
-                   "cnrs"                      =      ' in CNRS',   
-                   "cnrs*uni_pub"              =      ' in public universities with CNRS',
-                   "fused"                     =      ' in fused HEI',   
-                   "fused*uni_pub"             =      ' in fused public universities'
-)
-formula_normalized = str_replace_all(as.character(test_feols$fml)[3], '\\n|\\s', '')
-list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  "total_w"                  =     'Number of researchers',
+  "total_w_junior"           =     'Number of junior researcher',
+  "total_w_senior"           =     'Number of senior researcher',
+  "total_w_medium"           =     'Number of medium researcher',
+  "total_w_foreign_entrant"  =     'Number of foreign entrant',
   
-for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
-    iplot(test_feols, i.select=i_select, 
-          main =  paste0(outcomes_dict[["total_w"]],outcomes_dict[[list_i_variables[[i_select]]]])
+  "stayers_w"                  =     'Continuing researchers',
+  "stayers_w_junior"           =     'Continuing junior researcher',
+  "stayers_w_senior"           =     'Continuing senior researcher',
+  "stayers_w_medium"           =     'Continuing medium researcher',
+  "stayers_w_foreign_entrant"  =     'Continuing foreign entrant',
+  
+  "movers_w"                  =     'Total flows',
+  "movers_w_junior"           =     'Junior researcher flows',
+  "movers_w_senior"           =     'Senior researcher flows',
+  "movers_w_medium"           =     'Medium researcher flows',
+  "movers_w_own_entrant_r"    =     'Exiting from entry institution',
+  "movers_w_own_entrant_s"    =     'Exiting from entry institution',
+  "movers_w_foreign_entrant"  =     'Foreign entrant flows',
+  
+  "uni_pub"                   =      ' in universities',
+  "has_idex"                  =      ' in Idex',
+  "has_idex*uni_pub"          =      ' in Idex public universities',
+  "cnrs"                      =      ' in CNRS',   
+  "cnrs*uni_pub"              =      ' in public universities with CNRS',
+  "fused"                     =      ' in fused HEI',   
+  "fused*uni_pub"             =      ' in fused public universities'
+)
+
+formula_event_study <-paste0('~',
+                            " i(year, uni_pub, 2007)",
+                            "+ i(year, has_idex, 2007)  ",
+                            "+i(year, has_idex*uni_pub, 2007)",
+                            "+i(year, fused, 2007)",
+                            #"+ i(year, fused*uni_pub, 2007)",
+                            "+i(year, cnrs, 2007)"
+                            #"+ i(year, cnrs*uni_pub, 2007)"
+)
+
+fe_large <- "| inst_id + year+type^year +ecole^year+prive^year+first_y_lab^year+size_03*year"
+fe_min <- '| inst_id +year'
+list_event_study <- list()
+list_event_study_simple <- list()
+
+outcomes <- colnames(ds_unilat %>% dplyr::select(starts_with('total_w')))
+outcomes <- outcomes[outcomes %in% names(outcomes_dict)]
+for(var in outcomes){
+
+  event_study_var_simple <- feols(as.formula(paste0(var, formula_event_study, fe_min))
+                           , data = reg_df_subset
+                           ,cluster = c('inst_id')
+  )
+  list_event_study_simple[[var]] <- event_study_var_simple
+  
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\unilat\\simple\\", var)
+  if (!file.exists(var_path)){
+    dir.create(var_path, recursive = TRUE)
+  }
+  formula_normalized = str_replace_all(as.character(list_event_study_simple[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(list_event_study_simple[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+    dev.off()
+    iplot(list_event_study_simple[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
     )
   }
+  event_study_var <- feols(as.formula(paste0(var, formula_event_study, fe_large))
+                           , data = reg_df_subset
+                           ,cluster = c('inst_id')
+  )
+  list_event_study[[var]] <- event_study_var
+  
+  var_path = paste0("D:\\panel_fr_res\\lab_results\\unilat\\ctrl\\", var)
+  if (!file.exists(var_path)){
+    dir.create(var_path, recursive = TRUE)
+  }
+  formula_normalized = str_replace_all(as.character(list_event_study[[var]]$fml)[3], '\\n|\\s', '')
+  list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
+  for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
+    pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
+    iplot(list_event_study[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+    dev.off()
+    iplot(list_event_study[[var]], i.select=i_select, 
+          main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
+    )
+  }
+  
+}
+
+
+test_feols <- feols( total_w_foreign_entrant ~
+                       
+                       ,reg_df_subset
+                      )
+
 
 ggplot(reg_df_unilat %>%
          .[, type_reg := case_when(

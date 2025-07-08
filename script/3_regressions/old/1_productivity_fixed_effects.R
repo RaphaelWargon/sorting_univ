@@ -11,8 +11,8 @@ p_load('arrow'
 'cowplot')
 wins_vars <- function(x, pct_level = 0.01){
   if(is.numeric(x)){
-    Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
-    #winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
   } else {x}
 }
 
@@ -71,13 +71,13 @@ ds <- ds %>%
     by = "inst_id"] %>%
   .[,field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id']%>%
   .[,max_field_value := max(field_value), by = 'inst_id'] %>%
-  .[,main_field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) & country == 'FR') | is.na(main_field), max_field, main_field)]
+  .[,main_field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(main_field), max_field, main_field)]
 gc()
 
-unique(ds[inst_name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
-unique(ds[inst_name == 'Paris School of Business'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
+unique(ds[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
+unique(ds[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
 
-unique(ds[inst_name == 'Paris School of Economics' & is.na(main_field) ][, list(inst_id, author_id,author_name,main_field_recoded)])
+unique(ds[name == 'Paris School of Economics' & is.na(main_field) ][, list(inst_id, author_id,author_name,main_field_recoded)])
 
 unique(ds[author_name == 'Philippe Aghion' ][, list(inst_id,inst_name, author_id,author_name,main_field_recoded)])
 
@@ -126,7 +126,7 @@ sample_df <- ds[n_authors_w_several_inst > 0
              & !(is.na(main_field))
              & !(inst_id %in% c('archive',"other"))
              ]%>%
-  #.[, main_field := main_field_recoded]%>%
+  .[, main_field := main_field_recoded]%>%
   .[,n_authors_sample := n_distinct(author_id), by = c('inst_id','main_field')]%>%
   #.[n_authors_sample >= 5]%>%
   .[ , ':='(n_y_in_sample = n_distinct(year),
@@ -177,7 +177,7 @@ p <- ggplot(to_plot)+
   geom_vline(xintercept = 2007, linetype = 'dashed')+
   geom_vline(xintercept = 2009)
 p
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_rankw_pub.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_rankw_pub.png", p)
 
 
 p <- ggplot(to_plot)+
@@ -186,16 +186,26 @@ p <- ggplot(to_plot)+
   theme_bw()+labs(title = '', color = 'Affected by LRU')+xlab('Year') + ylab('Average citations')+
   geom_vline(xintercept = 2007, linetype = 'dashed')+
   geom_vline(xintercept = 2009)
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
 
 test <- sample_df[inst_id == "I4210144005"]
 sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
+
+sample_df <- sample_df %>%
+  .[, colab := paste0(sort(unique((author_id))), collapse =','), by = c('inst_id_field','year')]%>%
+  .[, colab := str_replace_all(str_remove_all(str_remove(colab, author_id), ',$|^,'), ',{2,}', ',')]
+
+test <- sample_df %>%
+  .[, .N, by = 'colab']
+
+ggplot(sample_df[, .N, by = colab])+
+  geom_histogram(aes(x=log(N)))
 # regressions -------------------------------------------------------------
-formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)
-                 + i(year, has_idex*uni_pub, 2008)
-                 + i(year, has_idex*(1-uni_pub), 2008)
-                  | ',
-                  ' author_id + inst_id_field '
+formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)',
+                 '+ i(year, has_idex*uni_pub, 2008)',
+                 '+ i(year, has_idex*(1-uni_pub), 2008)',
+                  '| ',
+                  ' author_id + inst_id_field + year ', '+ colab'
                   ,'+ type^year '
                   ,'+ cnrs^year'
                   ,'+ fused^year'
@@ -203,12 +213,14 @@ formula <- paste0('citations_raw~ 1 + i(year, uni_pub, 2008)
 )
 test_brutal <- feols(as.formula(formula)
                      ,data = sample_df %>%
-                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  )]
+                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
                        )
 gc()
 iplot(test_brutal,i.select = 1)
+#iplot(test_brutal,i.select = 2)
+#iplot(test_brutal,i.select = 3)
 
-pdf("E:\\panel_fr_res\\productivity_results\\effect_citations.pdf")
+pdf("D:\\panel_fr_res\\productivity_results\\effect_citations.pdf")
 iplot(test_brutal, main = 'Effect on total citations')
 dev.off()
 summary(test_brutal)
@@ -234,6 +246,7 @@ etable(agg_prod,file = "E:\\panel_fr_res\\productivity_results\\agg_prod.tex")
 fixef_brutal <- fixef(test_brutal#, fixef.iter =  5000
 )
 plot(fixef_brutal)
+hist(fixef_brutal$colab)
 gc()
 
 
@@ -244,12 +257,17 @@ fixef_ds_au_akm <-fixef_ds_au_akm[, ":="(rank_au_akm =frank(fixef_au_akm))]
 fixef_ds_inst_akm <-as.data.table(list(names(fixef_brutal$inst_id_field),fixef_brutal$inst_id_field))
 colnames(fixef_ds_inst_akm) <- c('inst_id_field','fixef_inst_akm')
 fixef_ds_inst_akm <- fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))]
+fixef_ds_colab_akm <-as.data.table(list(names(fixef_brutal$colab),fixef_brutal$colab))
+colnames(fixef_ds_colab_akm) <- c('colab','fixef_colab_akm')
+fixef_ds_colab_akm <- fixef_ds_colab_akm[, ":="(rank_colab_akm =frank(fixef_colab_akm))]
+
+
 
 fixef_ds_au <- merge(fixef_ds_au_akm[, ":="(rank_au_akm =frank(fixef_au_akm))],
-                     unique(sample_df[, list(author_id,author_name, main_field, n_obs_au)]), by = 'author_id', how = 'left')
+                     unique(sample_df[, list(author_id,author_name, main_field, n_obs_au)]), by = 'author_id')
 fixef_ds_inst <- merge(fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))],
-                       unique(sample_df[, list(inst_id_field, inst_name, country,n_obs_univ)]), by = 'inst_id_field')
-test <- fixef_ds_inst[str_detect(inst_id_field, 'econ') & country == 'FR'][, 
+                       unique(sample_df[, list(inst_id_field, name,n_obs_univ)]), by = 'inst_id_field')
+test <- fixef_ds_inst[str_detect(inst_id_field, 'econ')][, 
                                                                            rank_inst_akm := rank_inst_akm/max(rank_inst_akm, na.rm = T)]
 
 test[inst_id_field %in% c("I57995698econ", 'I2802331213econ',
@@ -264,10 +282,11 @@ test2[author_name=='Philippe Aghion']
 
 sample_df <- merge(sample_df, fixef_ds_au_akm, by ='author_id', all.x = T) 
 sample_df <- merge(sample_df, fixef_ds_inst_akm, by ='inst_id_field', all.x = T) 
+sample_df <- merge(sample_df, fixef_ds_colab_akm, by ='colab', all.x = T) 
 
 
 
 
 # Save results ------------------------------------------------------------
-fwrite(sample_df, "E:\\panel_fr_res\\test_with_fixed_effects.csv")
+fwrite(sample_df, "D:\\panel_fr_res\\test_with_fixed_effects.csv")
 gc()

@@ -10,27 +10,83 @@ p_load('arrow'
        ,'binsreg',
        'DescTools',
        'cowplot','npregfast')
-sample <- fread( "E:\\panel_fr_res\\test_with_fixed_effects.csv") %>% #test_with_fixed_effects.csv
+sample <- fread( "D:\\panel_fr_res\\test_with_fixed_effects.csv") %>% #test_with_fixed_effects.csv
    .[
     , ':='(rank_au_akm_norm = rank_au_akm/max(rank_au_akm, na.rm = T),
-           rank_inst_akm_norm = rank_inst_akm/max(rank_inst_akm, na.rm = T)
+           rank_inst_akm_norm = rank_inst_akm/max(rank_inst_akm, na.rm = T),
+           rank_colab_akm_norm = rank_colab_akm/max(rank_colab_akm, na.rm = T)
            ), by = 'main_field'
   ]
-sample <- sample %>%
+sample <- sample%>%
   .[, inst_id_set:=paste0(unique(list(inst_id)), collapse = ","), by = c('author_id','year') ]%>%
   .[, lag_inst_id_set := lag(inst_id_set, order_by = year), by = author_id] %>%
   .[, entrant := ifelse(!str_detect(lag_inst_id_set, inst_id) | is.na(lag_inst_id_set), 1,0)]
 gc()
 
 
+ggplot(sample %>% .[citations_raw>0]%>%
+         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+                  rank_au_akm_norm = round(rank_au_akm_norm, 2)
+                  )] %>%
+         .[, .(citations_raw = mean(citations_raw),
+               rank_colab_akm = mean(rank_colab_akm), N = .N
+               ), by = c('rank_inst_akm_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=rank_inst_akm_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
+ggplot(sample %>% .[citations_raw>0]%>%
+         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+                  rank_au_akm_norm = round(rank_au_akm_norm, 2)
+         )] %>%
+         .[, .(citations_raw = mean(citations_raw),
+               rank_colab_akm = mean(rank_colab_akm), N = .N
+         ), by = c('rank_inst_akm_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=rank_inst_akm_norm, y= rank_au_akm_norm, fill = log(N)))+
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
+
+ggplot(sample %>% .[citations_raw>0]%>%
+         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+                  rank_au_akm_norm = round(rank_au_akm_norm, 2)     
+           )] %>%
+         .[, .(citations_raw = mean(citations_raw),
+               rank_colab_akm_norm = mean(rank_colab_akm_norm)
+         ), by = c('rank_inst_akm_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=rank_inst_akm_norm, y= rank_au_akm_norm, fill = rank_colab_akm_norm))+
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
+ggplot(sample %>% .[citations_raw>0]%>%
+         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+                  rank_au_akm_norm = round(rank_au_akm_norm, 2),
+                  rank_colab_akm_norm = round(rank_colab_akm_norm, 2)
+         )] %>%
+         .[, .(citations_raw = mean(citations_raw)
+         ), by = c('rank_colab_akm_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=rank_colab_akm_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
+
+ggplot(sample %>% .[citations_raw>0]%>%
+         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+                  rank_au_akm_norm = round(rank_au_akm_norm, 2),
+                  rank_colab_akm_norm = round(rank_colab_akm_norm, 2)
+         )] %>%
+         .[, .(citations_raw = mean(citations_raw),
+               rank_au_akm_norm = mean(rank_au_akm_norm)
+         ), by = c('rank_colab_akm_norm','rank_inst_akm_norm')])+
+  geom_raster(aes(x=rank_colab_akm_norm, y= rank_inst_akm_norm, fill = rank_au_akm_norm))+
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
+
+
 plot(sort(log(unique(sample[, list(inst_id, n_obs_univ)])$n_obs_univ)))
 
-test <- unique(sample[country == 'FR'][rank_inst_akm >=0.9*max(rank_inst_akm, na.rm = T), by = 'main_field'][, 
+test <- unique(sample[rank_inst_akm >=0.9*max(rank_inst_akm, na.rm = T), by = 'main_field'][, 
     list(inst_id,inst_name, main_field,rank_inst_akm_norm)])[order(main_field,rank_inst_akm_norm)]
 
-unique(sample[inst_name == 'Paris School of Economics'][, list(inst_id, rank_au_akm_norm, rank_inst_akm_norm, n_authors_sample, main_field,n_authors_w_several_inst)])
+unique(sample[name == 'Paris School of Economics'][, list(inst_id, rank_au_akm_norm, rank_inst_akm_norm, n_authors_sample, main_field,n_authors_w_several_inst)])
 
-ggplot(sample[inst_name == 'Paris School of Economics' & year %in% c(2005, 2016) & main_field == "econ"])+
+ggplot(sample[name == 'Paris School of Economics' & year %in% c(2005, 2016) & main_field == "econ"])+
   geom_density(aes(x=rank_au_akm_norm, color = as.factor(year)), alpha = 0.5)
 
 ggplot(sample[year %in% c(2005, 2016) & main_field == "econ"])+
@@ -48,10 +104,11 @@ ggplot(sample[year %in% c(2005, 2016)])+
 unique(sample[,list(author_id, n_y_in_sample)])[, .N, by = 'n_y_in_sample'][order(n_y_in_sample)]
 
 ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
-                       .[year >=2000 & year<=2020 & country == "FR" #& n_y_in_sample >10
+                       .[year >=2000 & year<=2020# & country == "FR" #& n_y_in_sample >10
                        & rank_au_akm_norm >0.025 & rank_au_akm_norm < 0.975
                        & rank_inst_akm_norm >0.025 & rank_inst_akm_norm < 0.975
                        & n_obs_au >=10
+                       & n_authors_sample >= 5
                        & entrant == 1
                        & n_obs_univ >=100
                   #    & inst_type!= 'company'
@@ -82,15 +139,15 @@ ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
        #has_rank_90th_logsup = max(fifelse(rank_au_logsup >=0.9,1,0), na.rm = T),
        #has_rank_50th_logsup = max(fifelse(rank_au_logsup >=0.5,1,0), na.rm = T),
        n_authors = n_distinct(author_id))
-  , by =c('inst_id','year','main_field', 'inst_name','inst_type','uni_pub','cnrs','fused',
+  , by =c('inst_id','year','main_field', 'name','type','uni_pub','cnrs','fused',
           'rank_inst_akm_norm','fixef_inst_akm'
           #,'rank_inst_logsup_norm','fixef_inst_logsup'
           ,'n_authors_sample','n_obs')]%>%
   .[, post := fifelse(year >=2009,1,0)]
 
-unique(ranking_data[inst_name == 'Paris School of Economics'][, list(inst_id, rank_inst_akm_norm, main_field)])
+unique(ranking_data[name == 'Paris School of Economics'][, list(inst_id, rank_inst_akm_norm, main_field)])
 
-test <- unique(ranking_data[main_field == 'econ'][, list(inst_id, inst_name, inst_type, rank_inst_akm_norm, main_field, n_authors_sample)])
+test <- unique(ranking_data[main_field == 'econ'][, list(inst_id, name, type, rank_inst_akm_norm, main_field, n_authors_sample)])
 
 gc()
 #rm(sample)
@@ -129,7 +186,7 @@ p  <- p$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
   labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
-
+p
 save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
 
 
@@ -150,7 +207,7 @@ p1 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
 p1  <- p1$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
-  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
   ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
 
 p1
@@ -171,8 +228,8 @@ p2 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
 p2  <- p2$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
-  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')+
-  ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')#+
+  #ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
 
 p2
 p12 <- plot_grid(p1,p2)
@@ -405,7 +462,7 @@ formula_ranking = paste0("mean_rank_au_akm ~"
                         ,"|"
                          , "inst_id^main_field+ year"
                         , '+ main_field^year'
-                        , '+ inst_type^year'
+                        , '+ type^year'
                         )
 
 test_ranking <- feols(as.formula(formula_ranking),

@@ -465,7 +465,7 @@ for(var in names(list_event_study)){
   list_i_variables = str_extract_all(formula_normalized, pattern = '(?<=i\\(year\\,)[A-z\\s*\\(\\)\\d-]*(?=\\,)')[[1]]
   for(i_select in 1:str_count(formula_normalized, pattern = 'i\\(')){
     pdf(paste0(var_path, '\\', str_replace_all(list_i_variables[[i_select]], '\\W', '_')[[1]], ".pdf"))
-    iplot(event_study_var, i.select=i_select, 
+    iplot(list_event_study[[var]], i.select=i_select, 
                  main =  paste0(outcomes_dict[[var]],outcomes_dict[[list_i_variables[[i_select]]]])
                 )
     dev.off()
