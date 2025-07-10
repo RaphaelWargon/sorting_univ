@@ -23,7 +23,7 @@ sample <- sample%>%
   .[, entrant := ifelse(!str_detect(lag_inst_id_set, inst_id) | is.na(lag_inst_id_set), 1,0)]
 gc()
 
-
+sample$alpha_hat <- sample$alpha_hat.x
 sample <- sample %>%
   .[, future_colleagues_fe := sum( as.numeric(entrant ==0)*alpha_hat )/sum(as.numeric(entrant==0)),
     by = c('inst_id_field','year')] %>%
