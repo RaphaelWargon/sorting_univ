@@ -9,7 +9,7 @@ p_load('arrow'
        ,'tidyverse'
        ,'binsreg',
        'DescTools',
-       'cowplot','npregfast')
+       'cowplot','npregfast','np')
 sample <- fread( "D:\\panel_fr_res\\test_with_fixed_effects.csv") %>% #test_with_fixed_effects.csv
    .[
     , ':='(rank_au_akm_norm = rank_au_akm/max(rank_au_akm, na.rm = T),
@@ -24,6 +24,16 @@ sample <- sample%>%
 gc()
 
 
+sample <- sample %>%
+  .[, future_colleagues_fe := sum( as.numeric(entrant ==0)*alpha_hat )/sum(as.numeric(entrant==0)),
+    by = c('inst_id_field','year')] %>%
+  .[, future_colleagues_rank := frank(future_colleagues_fe)] %>%
+  .[, future_colleagues_rank_norm := future_colleagues_rank /max(future_colleagues_rank, na.rm= T)] %>%
+  .[, alt_inst_fe := future_colleagues_fe + fixef_inst_akm ] %>%
+  .[, alt_inst_fe_rank := frank(future_colleagues_fe)] %>%
+  .[, alt_inst_fe_rank_norm := alt_inst_fe_rank/max(alt_inst_fe_rank, na.rm= T)] 
+  
+  
 ggplot(sample %>% .[citations_raw>0]%>%
          .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
                   rank_au_akm_norm = round(rank_au_akm_norm, 2)
@@ -60,9 +70,9 @@ ggplot(sample %>% .[citations_raw>0]%>%
                   rank_au_akm_norm = round(rank_au_akm_norm, 2),
                   rank_colab_akm_norm = round(rank_colab_akm_norm, 2)
          )] %>%
-         .[, .(citations_raw = mean(citations_raw)
+         .[, .(citations_raw = mean(citations_raw), N = .N
          ), by = c('rank_colab_akm_norm','rank_au_akm_norm')])+
-  geom_raster(aes(x=rank_colab_akm_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
+  geom_raster(aes(x=rank_colab_akm_norm, y= rank_au_akm_norm, fill = log(N)))+
   scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
 
 
@@ -81,8 +91,12 @@ ggplot(sample %>% .[citations_raw>0]%>%
 
 plot(sort(log(unique(sample[, list(inst_id, n_obs_univ)])$n_obs_univ)))
 
-test <- unique(sample[rank_inst_akm >=0.9*max(rank_inst_akm, na.rm = T), by = 'main_field'][, 
-    list(inst_id,inst_name, main_field,rank_inst_akm_norm)])[order(main_field,rank_inst_akm_norm)]
+test_estim <- feols(log(citations) ~ rank_inst_akm_norm*prive*post + rank_au_akm_norm*prive*post
+                    |year + main_field
+                 , data = sample)
+summary(test_estim)  
+
+
 
 unique(sample[name == 'Paris School of Economics'][, list(inst_id, rank_au_akm_norm, rank_inst_akm_norm, n_authors_sample, main_field,n_authors_w_several_inst)])
 
@@ -90,18 +104,87 @@ ggplot(sample[name == 'Paris School of Economics' & year %in% c(2005, 2016) & ma
   geom_density(aes(x=rank_au_akm_norm, color = as.factor(year)), alpha = 0.5)
 
 ggplot(sample[year %in% c(2005, 2016) & main_field == "econ"])+
-  geom_point(aes(x=rank_au_akm_norm, y=fixef_au_akm, color = interaction(year, uni_pub)), alpha = 0.5)+
+  geom_point(aes(x=rank_au_akm_norm, y=alpha_hat, color = interaction(year, uni_pub)), alpha = 0.5)+
   geom_vline(aes(xintercept= 0.025))+geom_vline(aes(xintercept= 0.975))
   #geom_smooth(aes(x=rank_inst_akm, y=rank_au_akm, color = interaction(year, uni_pub)), alpha = 0.5)
 
 ggplot(sample[year %in% c(2005, 2016)# & main_field == "econ"
               ])+
-  geom_point(aes(x=fixef_inst_akm, y=fixef_au_akm, color = interaction(year, uni_pub)), alpha = 0.5)+
-  geom_smooth(aes(x=fixef_inst_akm, y=fixef_au_akm, color = interaction(year, uni_pub)), alpha = 0.5, formula = y ~x)
+  geom_point(aes(x=fixef_inst_akm, y=alpha_hat, color = interaction(year, uni_pub)), alpha = 0.5)+
+  geom_smooth(aes(x=fixef_inst_akm, y=alpha_hat, color = interaction(year, uni_pub)), alpha = 0.5, formula = y ~x)
 
 ggplot(sample[year %in% c(2005, 2016)])+
   geom_density(aes(x=fixef_inst_akm, fill = as.factor(uni_pub)))
 unique(sample[,list(author_id, n_y_in_sample)])[, .N, by = 'n_y_in_sample'][order(n_y_in_sample)]
+
+ggplot()+
+  geom_line(aes(x=fixef_inst_akm, y=rank_inst_akm), color ="darkred" ,
+            data = unique(sample[, list(inst_id_field, rank_inst_akm, fixef_inst_akm)]) %>%
+              .[, ':='(rank_inst_akm = rank_inst_akm/max(rank_inst_akm, na.rm= T),
+                       fixef_inst_akm = (fixef_inst_akm - min(fixef_inst_akm, na.rm =T))/(max(fixef_inst_akm, na.rm =T)-min(fixef_inst_akm, na.rm = T))
+                       )]
+              )+
+  geom_line(aes(x=avg_alpha_i_bar, y=rank_colab_akm), color ="darkblue" ,
+            data = unique(sample[, list(avg_alpha_i_bar, rank_colab_akm)]) %>%
+              .[avg_alpha_i_bar<Inf & avg_alpha_i_bar >-Inf] %>%
+              .[, ':='(rank_colab_akm = rank_colab_akm/max(rank_colab_akm, na.rm= T),
+                       avg_alpha_i_bar = (avg_alpha_i_bar - min(avg_alpha_i_bar, na.rm =T))/(max(avg_alpha_i_bar, na.rm =T)-min(avg_alpha_i_bar, na.rm = T))
+              )]
+  )+
+  geom_line(aes(x=alpha_hat, y=rank_au_akm/max(rank_au_akm)) ,color = "darkgreen", 
+            data = unique(sample[, list(author_id, rank_au_akm, alpha_hat)])%>%
+              .[, ':='(rank_au_akm = rank_au_akm/max(rank_au_akm, na.rm= T),
+                       alpha_hat = (alpha_hat - min(alpha_hat, na.rm =T))/(max(alpha_hat, na.rm =T)-min(alpha_hat, na.rm = T))
+              )]
+            
+            
+            )
+  
+save_plot("D:\\panel_fr_res\\productivity_results\\distrib_fe.png", plot=last_plot())
+
+ggplot()+
+  geom_line(aes(x=rank_inst_akm, y=min_rank), color ="darkred" ,
+            data = sample %>%
+              .[rank_inst_akm <Inf & rank_inst_akm >-Inf & !is.na(rank_inst_akm)] %>%
+              .[, rank_inst_akm := round(rank_inst_akm/max(rank_inst_akm, na.rm =T), 2)]%>%
+              .[, .(min_rank =min(rank_au_akm_norm, na.rm = T)), by = c('inst_id_field','rank_inst_akm')] %>%
+              .[, .(min_rank = mean(min_rank)), by = rank_inst_akm]
+  )+
+  geom_line(aes(x=rank_au_akm, y=min_rank), color ="darkgreen" ,
+            data = sample %>%
+              .[rank_au_akm <Inf & rank_au_akm >-Inf & !is.na(rank_au_akm)] %>%
+              .[, rank_au_akm := round(rank_au_akm/max(rank_au_akm, na.rm =T), 2)]%>%
+              .[, .(min_rank =min(rank_inst_akm_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
+              .[, .(min_rank = mean(min_rank)), by = rank_au_akm]
+  )
+save_plot("D:\\panel_fr_res\\productivity_results\\threshold_functions.png", plot=last_plot())
+
+ggplot()+
+  geom_line(aes(x=rank_colab_akm_norm, y=min_rank), color ="darkred" ,
+            data = sample %>%
+              .[rank_colab_akm_norm <Inf & rank_colab_akm_norm >-Inf & !is.na(rank_colab_akm_norm)] %>%
+              .[, rank_colab_akm_norm := round(rank_colab_akm_norm/max(rank_colab_akm_norm, na.rm =T), 2)]%>%
+              .[, .(min_rank =min(rank_au_akm_norm, na.rm = T)), by = c('inst_id_field','rank_colab_akm_norm')] %>%
+              .[, .(min_rank = mean(min_rank)), by = rank_colab_akm_norm]
+  )+
+  geom_line(aes(x=rank_au_akm, y=min_rank), color ="darkgreen" ,
+            data = sample %>%
+              .[rank_au_akm <Inf & rank_au_akm >-Inf & !is.na(rank_au_akm)] %>%
+              .[, rank_au_akm := round(rank_au_akm/max(rank_au_akm, na.rm =T), 2)]%>%
+              .[, .(min_rank =min(rank_colab_akm_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
+              .[, .(min_rank = mean(min_rank)), by = rank_au_akm]
+  )
+
+
+
+save_plot("D:\\panel_fr_res\\productivity_results\\threshold_functions_alt.png", plot=last_plot())
+
+
+
+
+# sorting pure ------------------------------------------------------------
+
+
 
 ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
                        .[year >=2000 & year<=2020# & country == "FR" #& n_y_in_sample >10
@@ -114,7 +197,9 @@ ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
                   #    & inst_type!= 'company'
                   ] %>%
                   .[
-  , ':='(rank_au_akm = (rank_au_akm-min(rank_au_akm, na.rm = T))/(max(rank_au_akm, na.rm = T)-min(rank_au_akm, na.rm = T)),
+  , ':='(fixef_au_akm = alpha_hat,
+         fixef_colab_akm = avg_alpha_i_bar,
+    rank_au_akm = (rank_au_akm-min(rank_au_akm, na.rm = T))/(max(rank_au_akm, na.rm = T)-min(rank_au_akm, na.rm = T)),
          #rank_au_logsup =(rank_au_logsup-min(rank_au_logsup, na.rm = T))/(max(rank_au_logsup, na.rm = T)-min(rank_au_logsup, na.rm = T)),
          rank_inst_akm_norm = (rank_inst_akm_norm-min(rank_inst_akm_norm, na.rm = T))/(max(rank_inst_akm_norm, na.rm = T)-min(rank_inst_akm_norm, na.rm = T))
          #rank_inst_logsup_norm = rank_inst_logsup_norm/max(rank_inst_logsup_norm, na.rm = T)
@@ -132,6 +217,18 @@ ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
        mean_fixef_au_akm = mean(fixef_au_akm, na.rm =T),
        has_rank_90th_akm = max(fifelse(rank_au_akm >=0.9,1,0), na.rm = T),
        has_rank_50th_akm = max(fifelse(rank_au_akm >=0.5,1,0), na.rm = T),
+       
+     min_rank_colab_akm = min(rank_colab_akm, na.rm = T),
+     max_rank_colab_akm = max(rank_colab_akm, na.rm = T),
+     sd_rank_colab_akm =   sd(rank_colab_akm, na.rm = T),
+     mean_rank_colab_akm = mean(rank_colab_akm, na.rm =T),
+     min_fixef_colab_akm = min(fixef_colab_akm, na.rm = T),
+     max_fixef_colab_akm = max(fixef_colab_akm, na.rm = T),
+     sd_fixef_colab_akm =   sd(fixef_colab_akm, na.rm = T),
+     mean_fixef_colab_akm = mean(fixef_colab_akm, na.rm =T),
+     has_rank_90th_akm = max(fifelse(rank_colab_akm >=0.9,1,0), na.rm = T),
+     has_rank_50th_akm = max(fifelse(rank_colab_akm >=0.5,1,0), na.rm = T),
+            
        #min_rank_au_logsup =  min(rank_au_logsup, na.rm = T),
        #max_rank_au_logsup =  max(rank_au_logsup, na.rm = T),
        #sd_rank_au_logsup =   sd(rank_au_logsup, na.rm = T),
@@ -140,7 +237,8 @@ ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
        #has_rank_50th_logsup = max(fifelse(rank_au_logsup >=0.5,1,0), na.rm = T),
        n_authors = n_distinct(author_id))
   , by =c('inst_id','year','main_field', 'name','type','uni_pub','cnrs','fused',
-          'rank_inst_akm_norm','fixef_inst_akm'
+          'rank_inst_akm_norm','fixef_inst_akm','idex'
+          ,'alt_inst_fe_rank_norm','alt_inst_fe','future_colleagues_fe',"future_colleagues_rank_norm"
           #,'rank_inst_logsup_norm','fixef_inst_logsup'
           ,'n_authors_sample','n_obs')]%>%
   .[, post := fifelse(year >=2009,1,0)]
@@ -159,18 +257,48 @@ test <- sample[author_name == "Philippe Aghion"]
 
 test <- unique(ranking_data[rank_inst_akm_norm >=0.9*max(rank_inst_akm_norm, na.rm = T), by = 'main_field'][, 
 .(fixef_au_akm = max(max_rank_au_akm)), by = 
-list(inst_id,inst_name, main_field,rank_inst_akm_norm)])
+list(inst_id,name, main_field,rank_inst_akm_norm)])
+to_plot <- ranking_data %>%
+  .[, uni_pub := fifelse(uni_pub ==1, "University", "Other")]
 
 
 
 # number of observations --------------------------------------------------------------------
-ggplot(unique(ranking_data[entrant==1][, .(inst_id,rank_inst_akm_norm,n_obs, inst_type, uni_pub)]))+
+ggplot(unique(ranking_data[][, .(inst_id,rank_inst_akm_norm,n_obs, type, uni_pub)]))+
   geom_point(aes(x=log(n_obs), y = rank_inst_akm_norm))
+p <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+             data = to_plot[year <= 2007]
+             ,weights = n_authors,
+             by = uni_pub, randcut = 1,
+             bycolors = c('black','steelblue'),
+             bysymbols = c(16,15))
+p  <- p$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')
+p
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_peer.png", p)
+
+
+
+p <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
+             data = to_plot[year <= 2007]
+             ,weights = n_authors,
+             by = uni_pub, randcut = 1,
+             bycolors = c('black','steelblue'),
+             bysymbols = c(16,15))
+
+
+
+p  <- p$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
+p
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
 
 
 # desc stats --------------------------------------------------------------
-to_plot <- ranking_data %>%
-  .[, uni_pub := fifelse(uni_pub ==1, "University", "Other")]
 
 
 p <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
@@ -187,7 +315,7 @@ p  <- p$bins_plot+
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
   labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
 p
-save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
 
 
 p1 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
@@ -234,7 +362,103 @@ p2  <- p2$bins_plot+
 p2
 p12 <- plot_grid(p1,p2)
 p12
-save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post.png", p12)
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post.png", p12)
+
+
+p1 <- binsreg(y=min_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
+              data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                         uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                         uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                         uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+              )][uni_pub == 'Other']
+              ,weights = n_authors,
+              by = uni_pub_post, randcut = 1,
+              bycolors = c('grey81','black','steelblue1',"steelblue4"),
+              bysymbols = c(16,16, 15,15)
+)
+
+
+
+p1  <- p1$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of minimum author fixed-effect')
+
+
+p1
+p2 <- binsreg(y=min_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
+              data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                         uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                         uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                         uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+              )][uni_pub == 'University']
+              ,weights = n_authors,
+              by = uni_pub_post, randcut = 1,
+              bycolors = c('steelblue1',"steelblue4"),
+              bysymbols = c(16,16, 15,15)
+)
+
+
+
+p2  <- p2$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of minimum author fixed-effect')#+
+
+
+p2
+p12 <- plot_grid(p1,p2)
+p12
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_min_binsreg_pre_post.png", p12)
+
+
+
+
+p1 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+              data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                         uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                         uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                         uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+              )][uni_pub == 'Other']
+              ,weights = n_authors,
+              by = uni_pub_post, randcut = 1,
+              bycolors = c('grey81','black','steelblue1',"steelblue4"),
+              bysymbols = c(16,16, 15,15)
+)
+
+
+
+p1  <- p1$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')
+
+
+p1
+p2 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+              data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
+                                                         uni_pub =="University" & year<=2008 ~ 'University - pre',
+                                                         uni_pub =="Other" & year >2008 ~ 'Other - post',
+                                                         uni_pub =="Other" & year<=2008 ~ 'Other - pre'
+              )][uni_pub == 'University']
+              ,weights = n_authors,
+              by = uni_pub_post, randcut = 1,
+              bycolors = c('steelblue1',"steelblue4"),
+              bysymbols = c(16,16, 15,15)
+)
+
+
+
+p2  <- p2$bins_plot+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
+  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')#+
+#ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
+
+p2
+p12 <- plot_grid(p1,p2)
+p12
+save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post_peers.png", p12)
 
 
 
@@ -374,23 +598,20 @@ validate_spec = ranking_data[year >=2000 & year<=2006
 validate_spec[min_rank_au_akm>0.7 & rank_inst_akm <0.3]
 
 ggplot(validate_spec[min_rank_au_akm <Inf & year == 2005]) +
-  geom_point(aes(x = rank_inst_akm, y = min_rank_au_akm, color = main_field, size = n_authors))
+  geom_point(aes(x = rank_inst_akm_norm, y = min_rank_au_akm, color = main_field, size = n_authors))
 
 ggplot(validate_spec[mean_rank_au_akm <Inf & year == 2005]) +
-  geom_point(aes(x = rank_inst_akm, y = mean_rank_au_akm, color = main_field, size = n_authors))
+  geom_point(aes(x = rank_inst_akm_norm, y = mean_rank_au_akm, color = main_field, size = n_authors))
 
-ggplot(validate_spec[min_rank_au_logsup <Inf]) +
-  geom_jitter(aes(x = rank_inst_logsup, y = min_rank_au_logsup, ))
-
-ggplot(ranking_data[min_rank_au_akm <Inf & uni_pub == 1 & cnrs == 0 & entrant==0& !is.na(main_field)
+ggplot(ranking_data[min_rank_au_akm <Inf & uni_pub == 1 & cnrs == 0 & !is.na(main_field)
                     & rank_inst_akm_norm < 0.99 & rank_inst_akm_norm >0.01 & n_authors >1]) +
   geom_point(aes(x = rank_inst_akm_norm, y = min_rank_au_akm), color= "firebrick", alpha = 0.8)+
   geom_point(aes(x = rank_inst_akm_norm, y = mean_rank_au_akm), color= "gold", alpha = 0.8)+
   geom_point(aes(x = rank_inst_akm_norm, y = max_rank_au_akm), color= "seagreen", alpha = 0.8)
 ggplot(validate_spec[min_rank_au_akm <Inf]) +
-  geom_jitter(aes(x = rank_inst, y = max_rank_au_akm))
+  geom_jitter(aes(x = rank_inst_akm_norm, y = max_rank_au_akm))
 ggplot(validate_spec) +
-  geom_jitter(aes(x = rank_inst, y = sd_rank_au_akm))
+  geom_jitter(aes(x = rank_inst_akm_norm, y = sd_rank_au_akm))
 
 binsreg(y=min_rank_au_akm, x= rank_inst,  w = main_field,
         data = validate_spec[min_rank_au_akm <Inf], nbins = 50, weights = n_authors)
@@ -401,22 +622,22 @@ binsreg(y=mean_rank_au_akm, x= rank_inst, w = main_field,
 
 
 # test np estimation ------------------------------------------------------
-ranking_data <- ranking_data[, uni_pub_post := case_when(cnrs == 0 & uni_pub == 0 & post == 0 & inst_type != 'company'~0,
-                                                         cnrs == 0 & uni_pub == 0 & post == 1 & inst_type != 'company'~1,
+ranking_data <- ranking_data[, uni_pub_post := case_when(cnrs == 0 & uni_pub == 0 & post == 0 & type != 'company'~0,
+                                                         cnrs == 0 & uni_pub == 0 & post == 1 & type != 'company'~1,
                                                          cnrs == 0 & uni_pub == 1 & post == 0 ~2,
                                                          cnrs == 0 & uni_pub == 1 & post == 1 ~3,
                                                          cnrs == 1 & uni_pub == 0 & post == 0 ~4,
                                                          cnrs == 1 & uni_pub == 0 & post == 1 ~5,
                                                          cnrs == 1 & uni_pub == 1 & post == 0 ~6,
                                                          cnrs == 1 & uni_pub == 1 & post == 1 ~7,
-                                                         cnrs == 0 & uni_pub == 0 & post == 0 & inst_type == 'company'~8,
-                                                         cnrs == 0 & uni_pub == 0 & post == 1 & inst_type == 'company'~9
+                                                         cnrs == 0 & uni_pub == 0 & post == 0 & type == 'company'~8,
+                                                         cnrs == 0 & uni_pub == 0 & post == 1 & type == 'company'~9
                                                          
                                                          )][!is.na(uni_pub_post)]
 np_reg <- frfast((min_rank_au_akm) ~ (rank_inst_akm_norm) + uni_pub_post, #+ main_field + inst_type,
                 p= 2, seed = 12, data = ranking_data[min_rank_au_akm <Inf
                                                      & !is.na(main_field)
-                                                     & n_authors >1 & entrant == 1],
+                                                     & n_authors >1 ],
                 nboot = 100, weights = n_authors)
 plot(np_reg, fac = 3,CIcol = 'blue', CItype = "l",der = 0)
 plot(np_reg, fac = 2,CIcol = 'blue', CItype = "l",der = 0)
@@ -455,10 +676,16 @@ ggplot(ranking_data[, .(min_rank_au_akm=mean(min_rank_au_akm)), by = c('uni_pub'
 
 # ranking regressions -----------------------------------------------------
 
-formula_ranking = paste0("mean_rank_au_akm ~"
+formula_ranking = paste0("c(mean_rank_au_akm,min_rank_au_akm) ~"
                         ,"i(year, rank_inst_akm_norm, 2008)"
                         ,"+i(year, uni_pub, 2008) "
                         ,"+i(year, uni_pub*rank_inst_akm_norm, 2008)"
+                        ,"+i(year, has_idex, 2008) "
+                        ,"+i(year, has_idex*rank_inst_akm_norm, 2008)"
+                        ,"+i(year, has_idex*uni_pub, 2008) "
+                        ,"+i(year, has_idex*uni_pub*rank_inst_akm_norm, 2008)"
+                        
+                        
                         ,"|"
                          , "inst_id^main_field+ year"
                         , '+ main_field^year'
@@ -466,7 +693,8 @@ formula_ranking = paste0("mean_rank_au_akm ~"
                         )
 
 test_ranking <- feols(as.formula(formula_ranking),
-                      ranking_data
+                      ranking_data%>%
+                        .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
                       , weights = (ranking_data
                                    
                                    )$n_authors
@@ -474,35 +702,57 @@ test_ranking <- feols(as.formula(formula_ranking),
 iplot(test_ranking, main = 'Overall ranking')
 iplot(test_ranking,i.select = 2, main = 'Effect on avg author rank of uni')
 iplot(test_ranking,i.select = 3, main = 'Ranking for universities')
+iplot(test_ranking,i.select = 4, main = 'Effect on avg author rank of idex')
+iplot(test_ranking,i.select = 5, main = 'Ranking for idex')
+iplot(test_ranking,i.select = 6, main = 'Effect on avg author rank of uni * idex')
+iplot(test_ranking,i.select = 7, main = 'Ranking for universities * idex')
+
+
 
 etable(test_ranking)
 test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking, 'year', 'post'), "2008", "0")),
                       ranking_data, weights = ranking_data$n_authors)
-etable(test_ranking, keep =c( 'uni_pub') 
-    #   ,file = "E:\\panel_fr_res\\productivity_results\\ranking.tex"
+etable(test_ranking)
+
+etable(test_ranking, keep =c( 'uni_pub','idex') 
+       ,file = "D:\\panel_fr_res\\productivity_results\\ranking.tex", replace = TRUE
        )
 
 
 
-formula_ranking = paste0("log(mean_rank_au_akm) ~"
-                         ,"i(year, log(rank_inst_akm_norm), 2008)"
+formula_ranking = paste0("c(log(mean_rank_au_akm),log(min_rank_au_akm)) ~"
+                         ,"i(year, rank_inst_akm_norm, 2008)"
                          ,"+i(year, uni_pub, 2008) "
-                         ,"+i(year, uni_pub*log(rank_inst_akm_norm), 2008)"
+                         ,"+i(year, uni_pub*rank_inst_akm_norm, 2008)"
+                         ,"+i(year, has_idex, 2008) "
+                         ,"+i(year, has_idex*rank_inst_akm_norm, 2008)"
+                         ,"+i(year, has_idex*uni_pub, 2008) "
+                         ,"+i(year, has_idex*uni_pub*rank_inst_akm_norm, 2008)"
+                         
+                         
                          ,"|"
-                         , "inst_id^main_field+ year +main_field^year"
+                         , "inst_id^main_field+ year"
+                         , '+ main_field^year'
+                         , '+ type^year'
 )
 
 test_ranking <- feols(as.formula(formula_ranking),
                       ranking_data, weights = ranking_data$n_authors)
-iplot(test_ranking)
-iplot(test_ranking,i.select = 2)
-iplot(test_ranking,i.select = 3)
+iplot(test_ranking, main = 'Overall ranking')
+iplot(test_ranking,i.select = 2, main = 'Effect on avg author rank of uni')
+iplot(test_ranking,i.select = 3, main = 'Ranking for universities')
+iplot(test_ranking,i.select = 4, main = 'Effect on avg author rank of idex')
+iplot(test_ranking,i.select = 5, main = 'Ranking for idex')
+iplot(test_ranking,i.select = 6, main = 'Effect on avg author rank of uni * idex')
+iplot(test_ranking,i.select = 7, main = 'Ranking for universities * idex')
 
 etable(test_ranking)
 test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking, 'year', 'post'), "2008", "0")),
                       ranking_data[, post:=as.numeric(year>=2009)], weights = ranking_data$n_authors)
-etable(test_ranking
-     #  file = "E:\\panel_fr_res\\productivity_results\\ranking.tex"
-       )
+etable(test_ranking)
+
+etable(test_ranking, keep =c( 'uni_pub','idex') 
+       ,file = "D:\\panel_fr_res\\productivity_results\\ranking_log.tex", replace = TRUE
+)
 
 

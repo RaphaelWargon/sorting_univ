@@ -324,6 +324,7 @@ sample_df <- sample_df %>%
            alpha_hat = fixef(test_qual)$author_id[author_id],
            y_i = y- est_gamma[[5,1]]*avg_alpha_i_bar )]
 
+ggplot(unique(sample_df[, list(author_id, alpha_hat)]))+geom_density(aes(x=alpha_hat))
 
 formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
        '+ i(year, has_idex*uni_pub, 2008)',
@@ -386,32 +387,23 @@ agg_prod <- feols(as.formula(formula_agg)
                   ,data = sample_df %>%
                     .[,post := as.numeric(year >=2010)])
 gc()
-etable(agg_prod,file = "E:\\panel_fr_res\\productivity_results\\agg_prod.tex", replace=TRUE)
+etable(agg_prod)
+etable(agg_prod,drop = c('alpha_hat'),
+       file = "D:\\panel_fr_res\\productivity_results\\agg_prod.tex", replace=TRUE)
 
 
 
 fixef_brutal <- fixef(test_brutal#, fixef.iter =  5000
 )
-plot(fixef_brutal)
-#hist(fixef_brutal$colab)
 gc()
 
 
-fixef_ds_au_akm <-as.data.table(list(names(fixef_brutal$author_id),
-                                     fixef_brutal$author_id))
-colnames(fixef_ds_au_akm) <- c('author_id','fixef_au_akm')
-fixef_ds_au_akm <-fixef_ds_au_akm[, ":="(rank_au_akm =frank(fixef_au_akm))]
 fixef_ds_inst_akm <-as.data.table(list(names(fixef_brutal$inst_id_field),fixef_brutal$inst_id_field))
 colnames(fixef_ds_inst_akm) <- c('inst_id_field','fixef_inst_akm')
 fixef_ds_inst_akm <- fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))]
-fixef_ds_colab_akm <-as.data.table(list(names(fixef_brutal$colab),fixef_brutal$colab))
-colnames(fixef_ds_colab_akm) <- c('colab','fixef_colab_akm')
-fixef_ds_colab_akm <- fixef_ds_colab_akm[, ":="(rank_colab_akm =frank(fixef_colab_akm))]
+ggplot(fixef_ds_inst_akm)+geom_line(aes(x=rank_inst_akm,y=fixef_inst_akm))
+ggplot(fixef_ds_inst_akm)+geom_density(aes(x=fixef_inst_akm))
 
-
-
-fixef_ds_au <- merge(fixef_ds_au_akm[, ":="(rank_au_akm =frank(fixef_au_akm))],
-                     unique(sample_df[, list(author_id,author_name, main_field, n_obs_au)]), by = 'author_id')
 fixef_ds_inst <- merge(fixef_ds_inst_akm[, ":="(rank_inst_akm =frank(fixef_inst_akm))],
                        unique(sample_df[, list(inst_id_field, name,n_obs_univ)]), by = 'inst_id_field')
 test <- fixef_ds_inst[str_detect(inst_id_field, 'econ')][, 
@@ -419,20 +411,22 @@ test <- fixef_ds_inst[str_detect(inst_id_field, 'econ')][,
 
 test[inst_id_field %in% c("I57995698econ", 'I2802331213econ',
                           "I4210092408econ",'I4210144888econ')]
-fixef_ds_au[author_name=='Philippe Aghion']
-fixef_ds_au[author_name=='Stanislas Dehaene']
+unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[author_name=='Philippe Aghion']
+unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[author_name=='Stanislas Dehaene']
 
-test2 <- fixef_ds_au[str_detect(main_field, 'econ')][, 
+test2 <- unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[str_detect(main_field, 'econ')][, ":="(rank_au_akm =frank(alpha_hat))][, 
                                                      rank_au_akm := rank_au_akm/max(rank_au_akm, na.rm = T)]
 test2[author_name=='Philippe Aghion']
 
 
-sample_df <- merge(sample_df, fixef_ds_au_akm, by ='author_id', all.x = T) 
 sample_df <- merge(sample_df, fixef_ds_inst_akm, by ='inst_id_field', all.x = T) 
-sample_df <- merge(sample_df, fixef_ds_colab_akm, by ='colab', all.x = T) 
 
+rank_au <- unique(sample_df[, list(author_id, alpha_hat)]) %>%
+  .[, rank_au_akm := frank(alpha_hat)]
+sample_df <- merge(sample_df, rank_au[, list(author_id, rank_au_akm)], by ='author_id', all.x = T) 
 
-
+sample_df <- sample_df %>%
+  .[, rank_colab_akm:=frank(avg_alpha_i_bar) ]
 
 # Save results ------------------------------------------------------------
 fwrite(sample_df, "D:\\panel_fr_res\\test_with_fixed_effects.csv")
