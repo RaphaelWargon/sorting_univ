@@ -146,7 +146,7 @@ sample_df <- ds[n_authors_w_several_inst > 0
 #rm(ds)
 gc()
 
-nrow(unique(sample_df[, list(author_id)]))#136881 authors
+nrow(unique(sample_df[, list(author_id)]))#171473 authors
 
 sample_df <- unique(sample_df[, ':='(log_cit_w_p =log(citations/publications),
                                log_log_cit_w_p = log(log(citations/publications)),
@@ -210,6 +210,7 @@ formula_res <- paste0('log(citations)~ 1 + i(year, uni_pub, 2008)',
                   ,' type^year '
                   ,'+ cnrs^year'
                   ,'+ fused^year'
+                  ,'+ city^year'
                   ,'+ main_field^entry_cohort^year '
 )
 reg_to_residualize <- feols(as.formula(formula_res)
@@ -337,6 +338,7 @@ formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
        ,'+ ecole^year'
        ,'+ cnrs^year'
        ,'+ fused^year'
+       ,'+ city^year'
        ,'+ main_field^entry_cohort^year '
 )
 test_brutal <- feols(as.formula(formula)
