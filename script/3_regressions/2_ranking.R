@@ -10,7 +10,7 @@ p_load('arrow'
        ,'binsreg',
        'DescTools',
        'cowplot','npregfast','np')
-sample <- fread( "D:\\panel_fr_res\\test_with_fixed_effects.csv") %>% #test_with_fixed_effects.csv
+sample <- fread( "E:\\panel_fr_res\\test_with_fixed_effects.csv") %>% #test_with_fixed_effects.csv
    .[
     , ':='(rank_au_akm_norm = rank_au_akm/max(rank_au_akm, na.rm = T),
            rank_inst_akm_norm = rank_inst_akm/max(rank_inst_akm, na.rm = T),
@@ -23,7 +23,6 @@ sample <- sample%>%
   .[, entrant := ifelse(!str_detect(lag_inst_id_set, inst_id) | is.na(lag_inst_id_set), 1,0)]
 gc()
 
-sample$alpha_hat <- sample$alpha_hat.x
 sample <- sample %>%
   .[, future_colleagues_fe := sum( as.numeric(entrant ==0)*alpha_hat )/sum(as.numeric(entrant==0)),
     by = c('inst_id_field','year')] %>%
@@ -43,6 +42,7 @@ ggplot(sample %>% .[citations_raw>0]%>%
                ), by = c('rank_inst_akm_norm','rank_au_akm_norm')])+
   geom_raster(aes(x=rank_inst_akm_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
   scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+
 
 ggplot(sample %>% .[citations_raw>0]%>%
          .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
@@ -68,11 +68,11 @@ ggplot(sample %>% .[citations_raw>0]%>%
 ggplot(sample %>% .[citations_raw>0]%>%
          .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
                   rank_au_akm_norm = round(rank_au_akm_norm, 2),
-                  rank_colab_akm_norm = round(rank_colab_akm_norm, 2)
+                  future_colleagues_rank_norm = round(future_colleagues_rank_norm, 2)
          )] %>%
          .[, .(citations_raw = mean(citations_raw), N = .N
-         ), by = c('rank_colab_akm_norm','rank_au_akm_norm')])+
-  geom_raster(aes(x=rank_colab_akm_norm, y= rank_au_akm_norm, fill = log(N)))+
+         ), by = c('future_colleagues_rank_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=future_colleagues_rank_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
   scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
 
 
@@ -82,7 +82,7 @@ ggplot(sample %>% .[citations_raw>0]%>%
                   rank_colab_akm_norm = round(rank_colab_akm_norm, 2)
          )] %>%
          .[, .(citations_raw = mean(citations_raw),
-               rank_au_akm_norm = mean(rank_au_akm_norm)
+               rank_au_akm_norm = mean(rank_au_akm_norm), N = .N
          ), by = c('rank_colab_akm_norm','rank_inst_akm_norm')])+
   geom_raster(aes(x=rank_colab_akm_norm, y= rank_inst_akm_norm, fill = rank_au_akm_norm))+
   scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
@@ -91,7 +91,9 @@ ggplot(sample %>% .[citations_raw>0]%>%
 
 plot(sort(log(unique(sample[, list(inst_id, n_obs_univ)])$n_obs_univ)))
 
-test_estim <- feols(log(citations) ~ rank_inst_akm_norm*prive*post + rank_au_akm_norm*prive*post
+test_estim <- feols(log(citations) ~ rank_inst_akm_norm*prive*post
+                    + rank_au_akm_norm*prive*post
+                    + avg_alpha_i_bar*prive*post
                     |year + main_field
                  , data = sample)
 summary(test_estim)  
@@ -140,7 +142,7 @@ ggplot()+
             
             )
   
-save_plot("D:\\panel_fr_res\\productivity_results\\distrib_fe.png", plot=last_plot())
+save_plot("E:\\panel_fr_res\\productivity_results\\distrib_fe.png", plot=last_plot())
 
 ggplot()+
   geom_line(aes(x=rank_inst_akm, y=min_rank), color ="darkred" ,
@@ -157,7 +159,7 @@ ggplot()+
               .[, .(min_rank =min(rank_inst_akm_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
               .[, .(min_rank = mean(min_rank)), by = rank_au_akm]
   )
-save_plot("D:\\panel_fr_res\\productivity_results\\threshold_functions.png", plot=last_plot())
+save_plot("E:\\panel_fr_res\\productivity_results\\threshold_functions.png", plot=last_plot())
 
 ggplot()+
   geom_line(aes(x=rank_colab_akm_norm, y=min_rank), color ="darkred" ,
@@ -177,7 +179,7 @@ ggplot()+
 
 
 
-save_plot("D:\\panel_fr_res\\productivity_results\\threshold_functions_alt.png", plot=last_plot())
+save_plot("E:\\panel_fr_res\\productivity_results\\threshold_functions_alt.png", plot=last_plot())
 
 
 
@@ -277,7 +279,7 @@ p  <- p$bins_plot+
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
   labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')
 p
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_peer.png", p)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_peer.png", p)
 
 
 
@@ -295,7 +297,7 @@ p  <- p$bins_plot+
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
   labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
 p
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
 
 
 # desc stats --------------------------------------------------------------
@@ -315,7 +317,7 @@ p  <- p$bins_plot+
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
   labs(title = '')+xlab('Rank of fixed-effect - Institution')+ylab('Rank of average author fixed-effect')
 p
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre.png", p)
 
 
 p1 <- binsreg(y=mean_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
@@ -362,7 +364,7 @@ p2  <- p2$bins_plot+
 p2
 p12 <- plot_grid(p1,p2)
 p12
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post.png", p12)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post.png", p12)
 
 
 p1 <- binsreg(y=min_rank_au_akm, x= rank_inst_akm_norm, # w = ~main_field,
@@ -409,7 +411,7 @@ p2  <- p2$bins_plot+
 p2
 p12 <- plot_grid(p1,p2)
 p12
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_min_binsreg_pre_post.png", p12)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_min_binsreg_pre_post.png", p12)
 
 
 
@@ -458,7 +460,7 @@ p2  <- p2$bins_plot+
 p2
 p12 <- plot_grid(p1,p2)
 p12
-save_plot("D:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post_peers.png", p12)
+save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_post_peers.png", p12)
 
 
 
