@@ -34,13 +34,13 @@ sample <- sample %>%
   
   
 ggplot(sample %>% .[citations_raw>0]%>%
-         .[, ':='(rank_inst_akm_norm = round(rank_inst_akm_norm, 2),
+         .[, ':='(future_colleagues_rank_norm = round(future_colleagues_rank_norm, 2),
                   rank_au_akm_norm = round(rank_au_akm_norm, 2)
                   )] %>%
          .[, .(citations_raw = mean(citations_raw),
                rank_colab_akm = mean(rank_colab_akm), N = .N
-               ), by = c('rank_inst_akm_norm','rank_au_akm_norm')])+
-  geom_raster(aes(x=rank_inst_akm_norm, y= rank_au_akm_norm, fill = log(citations_raw)))+
+               ), by = c('future_colleagues_rank_norm','rank_au_akm_norm')])+
+  geom_raster(aes(x=future_colleagues_rank_norm, y= rank_au_akm_norm, fill = log(N)))+
   scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
 
 
@@ -162,18 +162,18 @@ ggplot()+
 save_plot("E:\\panel_fr_res\\productivity_results\\threshold_functions.png", plot=last_plot())
 
 ggplot()+
-  geom_line(aes(x=rank_colab_akm_norm, y=min_rank), color ="darkred" ,
+  geom_line(aes(x=future_colleagues_rank_norm, y=min_rank), color ="darkred" ,
             data = sample %>%
-              .[rank_colab_akm_norm <Inf & rank_colab_akm_norm >-Inf & !is.na(rank_colab_akm_norm)] %>%
-              .[, rank_colab_akm_norm := round(rank_colab_akm_norm/max(rank_colab_akm_norm, na.rm =T), 2)]%>%
-              .[, .(min_rank =min(rank_au_akm_norm, na.rm = T)), by = c('inst_id_field','rank_colab_akm_norm')] %>%
-              .[, .(min_rank = mean(min_rank)), by = rank_colab_akm_norm]
+              .[future_colleagues_rank_norm <Inf & future_colleagues_rank_norm >-Inf & !is.na(future_colleagues_rank_norm)] %>%
+              .[, future_colleagues_rank_norm := round(future_colleagues_rank_norm/max(future_colleagues_rank_norm, na.rm =T), 2)]%>%
+              .[, .(min_rank =min(rank_au_akm_norm, na.rm = T)), by = c('inst_id_field','future_colleagues_rank_norm')] %>%
+              .[, .(min_rank = mean(min_rank)), by = future_colleagues_rank_norm]
   )+
   geom_line(aes(x=rank_au_akm, y=min_rank), color ="darkgreen" ,
             data = sample %>%
               .[rank_au_akm <Inf & rank_au_akm >-Inf & !is.na(rank_au_akm)] %>%
               .[, rank_au_akm := round(rank_au_akm/max(rank_au_akm, na.rm =T), 2)]%>%
-              .[, .(min_rank =min(rank_colab_akm_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
+              .[, .(min_rank =min(future_colleagues_rank_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
               .[, .(min_rank = mean(min_rank)), by = rank_au_akm]
   )
 
@@ -679,13 +679,13 @@ ggplot(ranking_data[, .(min_rank_au_akm=mean(min_rank_au_akm)), by = c('uni_pub'
 # ranking regressions -----------------------------------------------------
 
 formula_ranking = paste0("c(mean_rank_au_akm,min_rank_au_akm) ~"
-                        ,"i(year, rank_inst_akm_norm, 2008)"
+                        ,"i(year, alt_inst_fe_rank_norm, 2008)"
                         ,"+i(year, uni_pub, 2008) "
-                        ,"+i(year, uni_pub*rank_inst_akm_norm, 2008)"
+                        ,"+i(year, uni_pub*alt_inst_fe_rank_norm, 2008)"
                         ,"+i(year, has_idex, 2008) "
-                        ,"+i(year, has_idex*rank_inst_akm_norm, 2008)"
+                        ,"+i(year, has_idex*alt_inst_fe_rank_norm, 2008)"
                         ,"+i(year, has_idex*uni_pub, 2008) "
-                        ,"+i(year, has_idex*uni_pub*rank_inst_akm_norm, 2008)"
+                        ,"+i(year, has_idex*uni_pub*alt_inst_fe_rank_norm, 2008)"
                         
                         
                         ,"|"
@@ -723,14 +723,13 @@ etable(test_ranking, keep =c( 'uni_pub','idex')
 
 
 formula_ranking = paste0("c(log(mean_rank_au_akm),log(min_rank_au_akm)) ~"
-                         ,"i(year, rank_inst_akm_norm, 2008)"
+                         ,"i(year, alt_inst_fe_rank_norm, 2008)"
                          ,"+i(year, uni_pub, 2008) "
-                         ,"+i(year, uni_pub*rank_inst_akm_norm, 2008)"
+                         ,"+i(year, uni_pub*alt_inst_fe_rank_norm, 2008)"
                          ,"+i(year, has_idex, 2008) "
-                         ,"+i(year, has_idex*rank_inst_akm_norm, 2008)"
+                         ,"+i(year, has_idex*alt_inst_fe_rank_norm, 2008)"
                          ,"+i(year, has_idex*uni_pub, 2008) "
-                         ,"+i(year, has_idex*uni_pub*rank_inst_akm_norm, 2008)"
-                         
+                         ,"+i(year, has_idex*uni_pub*alt_inst_fe_rank_norm, 2008)"
                          
                          ,"|"
                          , "inst_id^main_field+ year"

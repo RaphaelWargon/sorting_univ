@@ -165,7 +165,7 @@ test <- unique(ds%>%
 
 
 cols_to_wins <- colnames(ds)[str_detect(colnames(ds), 'total|stayer|mover')]
-reg_df <-  ds%>%
+reg_df <- ds %>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins, by = c('type_r','type_s')]%>%
   .[, size_s:= ifelse(inst_id_sender == 'entrant', 
                       sum(total_w), size_s), by= c('inst_id_sender','year')]%>%
@@ -394,7 +394,7 @@ fe_large <- paste0(
                               ##,"   + public_r^year + public_s^year"
                               ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
                               ," +size_r_03^year + size_s_03^year"
-                              #," +city_r^year + city_s^year + city_r^city_s^year"
+                              ," +city_r^year + city_s^year + city_r^city_s^year"
 )
 fe_min <- '| inst_id_receiver + inst_id_sender + year + unit'
 

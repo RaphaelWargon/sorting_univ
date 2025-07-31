@@ -179,6 +179,7 @@ formula_res <- paste0('log(citations)~ 1 + i(year, uni_pub, 2008)',
                   ,' type^year '
                   ,'+ cnrs^year'
                   ,'+ fused^year'
+                  ,'+ city^year'
                   ,'+ main_field^entry_cohort^year '
 )
 reg_to_residualize <- feols(as.formula(formula_res)
