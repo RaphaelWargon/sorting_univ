@@ -54,25 +54,11 @@ ds <- unique(ds)
 gc()
 unique(ds[, list(author_id,entry_year)][])[, .N, by = 'entry_year'][order(entry_year)]
 
-
-unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
-unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
-
-unique(sample_df[name == 'Paris School of Economics' & is.na(main_field) ][, list(inst_id, author_id,author_name,main_field_recoded)])
-
-unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,main_field_recoded)])
-
-unique(sample_df[str_detect(name, 'Université Paris 1')|
-            str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
-unique(sample_df[str_detect(name, 'Université Paris 1')|
-            str_detect(name, 'Panthéon-Sorbonne')&main_field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
-
-
 ##
 inst_to_exclude <- c('I4210159570')
 cols_to_wins <- colnames(ds)[4:19]
 sample_df <- ds[entry_year >=1965 
-             & entry_year <=2006
+             & entry_year <=2003
              & year >= 1997
              & citations >0
              #& inst_type %in% c('facility','education')
@@ -115,7 +101,22 @@ sample_df <- ds[entry_year >=1965
 #rm(ds)
 gc()
 
-nrow(unique(sample_df[, list(author_id)]))#169926 authors
+
+
+unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
+unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
+
+unique(sample_df[name == 'Paris School of Economics' & is.na(main_field) ][, list(inst_id, author_id,author_name,main_field_recoded)])
+
+unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,main_field_recoded)])
+
+unique(sample_df[str_detect(name, 'Université Paris 1')|
+                   str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
+unique(sample_df[str_detect(name, 'Université Paris 1')|
+                   str_detect(name, 'Panthéon-Sorbonne')&main_field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
+
+
+nrow(unique(sample_df[, list(author_id)]))#146189 authors
 
 sample_df <- unique(sample_df[, ':='(log_cit_w_p =log(citations/publications),
                                log_log_cit_w_p = log(log(citations/publications)),
@@ -300,7 +301,7 @@ cp_aufe <- ggplot(est_diff_alpha[i>1])+
   xlab('Number of iterations')+ylab('')+
   theme_minimal()
 cp_aufe
-save_plot("E:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp)
+save_plot("E:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp_aufe)
 
 
 sample_df <- sample_df %>%
@@ -327,7 +328,8 @@ formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
 test_brutal <- feols(as.formula(formula)
                      ,data = sample_df %>%
                        .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )] %>%
-                       .[, y_final := log(citations)- est_gamma[[5,1]]*avg_alpha_i_bar ]
+                       .[, y_final := log(citations)- est_gamma[[5,1]]*avg_alpha_i_bar ]%>%
+                       .[entry_year <= 2003 & year > 2003]
 )
 gc()
 
@@ -340,7 +342,7 @@ pdf("E:\\panel_fr_res\\productivity_results\\effect_uni_pub_citations.pdf")
 iplot(test_brutal, main = 'Effect of being in a PU on log citations')
 dev.off()
 pdf("E:\\panel_fr_res\\productivity_results\\effect_idex_citations.pdf")
-iplot(test_brutal,i.select = 2, main = 'Effect of being in an IDEX-receiving university on log citations')
+iplot(test_brutal,i.select = 2, main = 'Effect of being in an IDEX-receiving institution on log citations')
 dev.off()
 pdf("E:\\panel_fr_res\\productivity_results\\effect_idex_uni_pub_citations.pdf")
 iplot(test_brutal,i.select = 3, main = 'Effect of being in an IDEX-receiving PU on log citations')

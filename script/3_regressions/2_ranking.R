@@ -33,7 +33,7 @@ sample <- sample %>%
   .[, alt_inst_fe_rank_norm := alt_inst_fe_rank/max(alt_inst_fe_rank, na.rm= T)] 
   
   
-ggplot(sample %>% .[citations_raw>0]%>%
+p <- ggplot(sample %>% .[citations_raw>0]%>%
          .[, ':='(future_colleagues_rank_norm = round(future_colleagues_rank_norm, 2),
                   rank_au_akm_norm = round(rank_au_akm_norm, 2)
                   )] %>%
@@ -41,7 +41,10 @@ ggplot(sample %>% .[citations_raw>0]%>%
                rank_colab_akm = mean(rank_colab_akm), N = .N
                ), by = c('future_colleagues_rank_norm','rank_au_akm_norm')])+
   geom_raster(aes(x=future_colleagues_rank_norm, y= rank_au_akm_norm, fill = log(N)))+
-  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))
+  scale_fill_gradientn(colors = c('white','pink', 'firebrick','orange','yellow','green','aquamarine','blue','purple','black'))+
+  xlab('Rank of incumbents')+ylab('Rank of author')
+p
+save_plot("E:\\panel_fr_res\\desc_stats\\rank_rank_cor_obs.png", p)
 
 
 ggplot(sample %>% .[citations_raw>0]%>%
@@ -140,7 +143,9 @@ ggplot()+
               )]
             
             
-            )
+            )+
+  theme_bw()+
+  xlab('Normalized FE')+ ylab('Cumulative distribution function')
   
 save_plot("E:\\panel_fr_res\\productivity_results\\distrib_fe.png", plot=last_plot())
 
@@ -169,13 +174,15 @@ ggplot()+
               .[, .(min_rank =min(rank_au_akm_norm, na.rm = T)), by = c('inst_id_field','future_colleagues_rank_norm')] %>%
               .[, .(min_rank = mean(min_rank)), by = future_colleagues_rank_norm]
   )+
-  geom_line(aes(x=rank_au_akm, y=min_rank), color ="darkgreen" ,
+  geom_line(aes(x=rank_au_akm, y=min_rank), color ="darkblue" ,
             data = sample %>%
               .[rank_au_akm <Inf & rank_au_akm >-Inf & !is.na(rank_au_akm)] %>%
               .[, rank_au_akm := round(rank_au_akm/max(rank_au_akm, na.rm =T), 2)]%>%
               .[, .(min_rank =min(future_colleagues_rank_norm, na.rm = T)), by = c('author_id','rank_au_akm')] %>%
               .[, .(min_rank = mean(min_rank)), by = rank_au_akm]
-  )
+  )+
+  theme_bw()+
+  xlab('Normalized rank')+ylab('Average minimum rank of match')
 
 
 
@@ -231,6 +238,10 @@ ranking_data <- sample[,n_obs_au := .N, by = author_id]%>%
      has_rank_90th_akm = max(fifelse(rank_colab_akm >=0.9,1,0), na.rm = T),
      has_rank_50th_akm = max(fifelse(rank_colab_akm >=0.5,1,0), na.rm = T),
             
+     
+     min_rank_alt_fe = min(alt_inst_fe_rank_norm, na.rm = T),
+     mean_rank_alt_fe = mean(alt_inst_fe_rank_norm, na.rm =T),
+     
        #min_rank_au_logsup =  min(rank_au_logsup, na.rm = T),
        #max_rank_au_logsup =  max(rank_au_logsup, na.rm = T),
        #sd_rank_au_logsup =   sd(rank_au_logsup, na.rm = T),
@@ -268,7 +279,7 @@ to_plot <- ranking_data %>%
 # number of observations --------------------------------------------------------------------
 ggplot(unique(ranking_data[][, .(inst_id,rank_inst_akm_norm,n_obs, type, uni_pub)]))+
   geom_point(aes(x=log(n_obs), y = rank_inst_akm_norm))
-p <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+p <- binsreg(y=mean_rank_au_akm, x= mean_rank_alt_fe, # w = ~main_field,
              data = to_plot[year <= 2007]
              ,weights = n_authors,
              by = uni_pub, randcut = 1,
@@ -277,7 +288,7 @@ p <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
 p  <- p$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
-  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')
+  labs(title = '')+xlab('Rank of fixed-effect (Lab + Colleagues)')+ylab('Rank of average author fixed-effect')
 p
 save_plot("E:\\panel_fr_res\\productivity_results\\ranking_binsreg_pre_peer.png", p)
 
@@ -416,7 +427,7 @@ save_plot("E:\\panel_fr_res\\productivity_results\\ranking_min_binsreg_pre_post.
 
 
 
-p1 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+p1 <- binsreg(y=mean_rank_au_akm, x= mean_rank_alt_fe, # w = ~main_field,
               data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
                                                          uni_pub =="University" & year<=2008 ~ 'University - pre',
                                                          uni_pub =="Other" & year >2008 ~ 'Other - post',
@@ -433,11 +444,11 @@ p1 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
 p1  <- p1$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
-  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')
+  labs(title = '')+xlab('Rank of fixed-effect - Lab + Colleagues')+ylab('Rank of average author fixed-effect')
 
 
 p1
-p2 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
+p2 <- binsreg(y=mean_rank_au_akm, x= mean_rank_alt_fe, # w = ~main_field,
               data = to_plot[, uni_pub_post := case_when(uni_pub =="University" & year >2008 ~ 'University - post',
                                                          uni_pub =="University" & year<=2008 ~ 'University - pre',
                                                          uni_pub =="Other" & year >2008 ~ 'Other - post',
@@ -454,7 +465,7 @@ p2 <- binsreg(y=mean_rank_au_akm, x= mean_rank_colab_akm, # w = ~main_field,
 p2  <- p2$bins_plot+
   theme_bw()+ 
   theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 8))+
-  labs(title = '')+xlab('Rank of fixed-effect - Colleagues')+ylab('Rank of average author fixed-effect')#+
+  labs(title = '')+xlab('Rank of fixed-effect - Lab + Colleagues')+ylab('Rank of average author fixed-effect')#+
 #ylim(c(0.38,0.6))+geom_abline(intercept = 0, slope = 1) 
 
 p2
@@ -717,7 +728,7 @@ test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking
 etable(test_ranking)
 
 etable(test_ranking, keep =c( 'uni_pub','idex') 
-       ,file = "D:\\panel_fr_res\\productivity_results\\ranking.tex", replace = TRUE
+       ,file = "E:\\panel_fr_res\\productivity_results\\ranking.tex", replace = TRUE
        )
 
 
@@ -753,7 +764,7 @@ test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking
 etable(test_ranking)
 
 etable(test_ranking, keep =c( 'uni_pub','idex') 
-       ,file = "D:\\panel_fr_res\\productivity_results\\ranking_log.tex", replace = TRUE
+       ,file = "E:\\panel_fr_res\\productivity_results\\ranking_log.tex", replace = TRUE
 )
 
 
