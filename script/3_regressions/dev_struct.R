@@ -142,3 +142,26 @@ ggplot(x_level_pre)+
 
 
 
+# transitions -------------------------------------------------------------
+
+transitions_pre <-  sample %>%
+  .[,n_obs_au := .N, by = author_id] %>%
+  .[year %in% 1997:2006
+    & n_obs_au >=10
+    & n_authors_sample >= 5
+  ] %>%
+  .[, lag_uni_pub := lag(uni_pub, order_by = year), by = author_id] %>%
+  .[, lag_y := lag(alt_inst_fe_rank_norm, order_by = year), by = author_id] %>%
+  .[entrant == 1] %>%
+  .[, list(author_id, inst_id_field, alt_inst_fe_rank_norm,rank_au_akm_norm, uni_pub, lag_y, lag_uni_pub)] %>%
+  .[!is.na(alt_inst_fe_rank_norm) & !is.na(lag_y)] %>%
+  .[, ':='(lag_y = round(lag_y,2),alt_inst_fe_rank_norm = round(alt_inst_fe_rank_norm, 2), 
+           rank_au_akm_norm = round(rank_au_akm_norm, 2))] %>%
+  .[, .(min_new_rank = min(alt_inst_fe_rank_norm)), by = c("rank_au_akm_norm","lag_y",'uni_pub','lag_uni_pub')]
+
+gc()
+
+library(mgcv)
+fit <- gam(min_new_rank ~ te(rank_au_akm_norm, lag_y), data = transitions_pre[lag_uni_pub ==0 & uni_pub==0 ])
+pred <- predict(fit, newdata = transitions_pre[lag_uni_pub ==0 & uni_pub==0 ])
+plot(pred)
