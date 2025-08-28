@@ -2,13 +2,18 @@ rm(list = ls())
 gc()
 library('pacman')
 
+#install.packages('fwildclusterboot', repos ='https://s3alfisc.r-universe.dev')
+#install.packages("DIDmultiplegt", force = TRUE)
+
+library(fwildclusterboot)
+
 p_load('arrow'
 ,'data.table'
 ,'fixest'
 ,'tidyverse'
 ,'binsreg',
 'DescTools',
-'cowplot')
+'cowplot', 'fwildclusterboot','DIDmultiplegt')
 wins_vars <- function(x, pct_level = 0.01){
   if(is.numeric(x)){
     #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
@@ -17,7 +22,7 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
-inputpath <- "E:\\panel_fr_res\\panel_smoothed_w_theses.parquet"
+inputpath <- "D:\\panel_fr_res\\panel_smoothed.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
@@ -31,9 +36,9 @@ ds <- open_dataset(inputpath) %>%
          & year >= 1997
 
   ) %>%
-  select(author_id, author_name, year,
+  select(author_id, author_name, gender, year,
          entry_year,
-         inst_id, name, type, main_field,
+         inst_id, name, type, field, subfield, domain, entry_country,
          publications_raw,citations_raw,  
          publications, citations,
          avg_rank_source_raw,nr_source_btm_50pct_raw,
@@ -41,9 +46,9 @@ ds <- open_dataset(inputpath) %>%
          avg_rank_source,nr_source_btm_50pct,
          nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
          period_inst, uni_pub, cnrs,type, fused, idex, main_topic, city, prive, public, ecole, 
-         n_inst_y,
-         n_phd_students, in_supervisor_inst, 
-         in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
+         n_inst_y, first_y_inst_period, 
+        # n_phd_students, in_supervisor_inst, 
+        # in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
          )
 ds <- as.data.table(ds)
 
@@ -64,30 +69,30 @@ sample_df <- ds[entry_year >=1965
              #& inst_type %in% c('facility','education')
              #& country == 'FR'
              & !(inst_id %in% inst_to_exclude) 
-             & !(is.na(main_field))
+             & !(is.na(field))
              & !(inst_id %in% c('archive',"other"))
              ]%>%
   .[, ':='(n_inst_id_sample = n_distinct(inst_id),
-           main_field = first(main_field, na_rm = TRUE),
+           field = first(field, na_rm = TRUE),
            inst_id = ifelse(is.na(inst_id), 
                             lag(inst_id, order_by = year), inst_id)), by = 'author_id'] %>%
   .[, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
-           n_authors_sample = n_distinct(author_id) ), by = c('inst_id','main_field')]%>%
-  .[,n_by_field := n_distinct(author_id), by = 'main_field']%>%
+           n_authors_sample = n_distinct(author_id) ), by = c('inst_id','field')]%>%
+  .[,n_by_field := n_distinct(author_id), by = 'field']%>%
   .[, n_y_in_sample := n_distinct(year), by = 'author_id']%>%
   .[n_authors_w_several_inst > 0 & n_y_in_sample >=2] %>%
-  .[,max_field := dplyr::first(ifelse(n_authors_sample == max(n_authors_sample* as.numeric(!is.na(main_field)) ) & !is.na(main_field), main_field, NA), na_rm = T),
+  .[,max_field := dplyr::first(ifelse(n_authors_sample == max(n_authors_sample* as.numeric(!is.na(field)) ) & !is.na(field), field, NA), na_rm = T),
     by = "inst_id"] %>%
   .[,field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id']%>%
   .[,max_field_value := max(field_value), by = 'inst_id'] %>%
-  .[,main_field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(main_field), max_field, main_field)]%>%
-  .[, main_field := main_field_recoded]%>%
-  .[,n_authors_sample := n_distinct(author_id), by = c('inst_id','main_field')]%>%
+  .[,field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(field), max_field, field)]%>%
+  .[, field := field_recoded]%>%
+  .[,n_authors_sample := n_distinct(author_id), by = c('inst_id','field')]%>%
   #.[n_authors_sample >= 5]%>%
   .[ , ':='(n_y_in_sample = n_distinct(year),
-            n_obs_au = .N), by = c('author_id','main_field')]%>%
+            n_obs_au = .N), by = c('author_id','field')]%>%
  # .[n_obs_au >=3]%>%
-  .[,inst_id_field := paste0(inst_id, main_field)] %>%
+  .[,inst_id_field := paste0(inst_id, field)] %>%
   .[, entry_cohort := fifelse(entry_year <= 2000, floor(entry_year/5)*5, entry_year)]%>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]%>%
   .[, n_obs_univ := .N, by = 'inst_id']%>%
@@ -97,23 +102,23 @@ sample_df <- ds[entry_year >=1965
            nr_source_top_10pct_raw = ifelse(is.na(nr_source_top_10pct_raw),0,nr_source_top_10pct_raw),
            nr_source_top_5pct_raw = ifelse(is.na(nr_source_top_5pct_raw),0,nr_source_top_5pct_raw)
            )] %>%
-  .[, normalized_avg_rank_source_raw :=avg_rank_source_raw/max(avg_rank_source_raw), by = c('year','main_field') ]
+  .[, normalized_avg_rank_source_raw :=avg_rank_source_raw/max(avg_rank_source_raw), by = c('year','field') ]
 #rm(ds)
 gc()
 
 
 
-unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
-unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, main_field,main_field_recoded,max_field, field_value)])
+unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
+unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
 
-unique(sample_df[name == 'Paris School of Economics' & is.na(main_field) ][, list(inst_id, author_id,author_name,main_field_recoded)])
+unique(sample_df[name == 'Paris School of Economics' & is.na(field) ][, list(inst_id, author_id,author_name,field_recoded)])
 
-unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,main_field_recoded)])
+unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,field_recoded)])
 
 unique(sample_df[str_detect(name, 'Université Paris 1')|
-                   str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
+                   str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, field,max_field,field_recoded, field_value)])
 unique(sample_df[str_detect(name, 'Université Paris 1')|
-                   str_detect(name, 'Panthéon-Sorbonne')&main_field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, main_field,max_field,main_field_recoded, field_value)])
+                   str_detect(name, 'Panthéon-Sorbonne')&field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, field,max_field,field_recoded, field_value)])
 
 
 nrow(unique(sample_df[, list(author_id)]))#146189 authors
@@ -148,7 +153,7 @@ p <- ggplot(to_plot)+
   geom_vline(xintercept = 2007, linetype = 'dashed')+
   geom_vline(xintercept = 2009)
 p
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_rankw_pub.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_rankw_pub.png", p)
 
 
 p <- ggplot(to_plot)+
@@ -158,7 +163,7 @@ p <- ggplot(to_plot)+
   geom_vline(xintercept = 2007, linetype = 'dashed')+
   geom_vline(xintercept = 2009)
 p
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
+save_plot("D:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
 
 test <- sample_df[inst_id == "I4210144005"]
 sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
@@ -181,7 +186,7 @@ formula_res <- paste0('log(citations)~ 1 + i(year, uni_pub, 2008)',
                   ,'+ cnrs^year'
                   ,'+ fused^year'
                   ,'+ city^year'
-                  ,'+ main_field^entry_cohort^year '
+                  ,'+ field^entry_cohort^year '
 )
 reg_to_residualize <- feols(as.formula(formula_res)
                             ,data = sample_df %>%
@@ -292,7 +297,7 @@ ymax = Estimate + 1.96*`Std. Error`))+ylim(0.08, 0.18)+
   theme_minimal()
 cp
 
-save_plot("E:\\panel_fr_res\\productivity_results\\convergence_estimate.png",cp)
+save_plot("D:\\panel_fr_res\\productivity_results\\convergence_estimate.png",cp)
 
 
 cp_aufe <- ggplot(est_diff_alpha[i>1])+
@@ -301,7 +306,7 @@ cp_aufe <- ggplot(est_diff_alpha[i>1])+
   xlab('Number of iterations')+ylab('')+
   theme_minimal()
 cp_aufe
-save_plot("E:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp_aufe)
+save_plot("D:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp_aufe)
 
 
 sample_df <- sample_df %>%
@@ -322,7 +327,7 @@ formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
        ,'+ ecole^year'
        ,'+ cnrs^year'
        ,'+ fused^year'
-       ,'+ main_field^entry_year^year '
+       ,'+ field^entry_year^year '
        ,'+ city^year'
 )
 test_brutal <- feols(as.formula(formula)
@@ -338,22 +343,21 @@ iplot(test_brutal,i.select = 2)
 iplot(test_brutal,i.select = 3)
 iplot(test_brutal,i.select = 4)
 
-pdf("E:\\panel_fr_res\\productivity_results\\effect_uni_pub_citations.pdf")
+pdf("D:\\panel_fr_res\\productivity_results\\effect_uni_pub_citations.pdf")
 iplot(test_brutal, main = 'Effect of being in a PU on log citations')
 dev.off()
-pdf("E:\\panel_fr_res\\productivity_results\\effect_idex_citations.pdf")
+pdf("D:\\panel_fr_res\\productivity_results\\effect_idex_citations.pdf")
 iplot(test_brutal,i.select = 2, main = 'Effect of being in an IDEX-receiving institution on log citations')
 dev.off()
-pdf("E:\\panel_fr_res\\productivity_results\\effect_idex_uni_pub_citations.pdf")
+pdf("D:\\panel_fr_res\\productivity_results\\effect_idex_uni_pub_citations.pdf")
 iplot(test_brutal,i.select = 3, main = 'Effect of being in an IDEX-receiving PU on log citations')
 dev.off()
-pdf("E:\\panel_fr_res\\productivity_results\\effect_private_citations.pdf")
+pdf("D:\\panel_fr_res\\productivity_results\\effect_private_citations.pdf")
 iplot(test_brutal,i.select = 4, main = 'Effect of being in a private institution on log citations')
 dev.off()
 
 
 summary(test_brutal)
-
 
 #
 #formula_agg <- paste0('c(publications_raw, avg_rank_source_raw*publications_raw, citations_raw, nr_source_top_5pct_raw)',
@@ -362,7 +366,7 @@ summary(test_brutal)
 #                  ,'+ inst_type^year '
 #                  ,'+ cnrs^year'
 #                  ,'+ fused^year'
-#                  ,'+ main_field^year '
+#                  ,'+ field^year '
 #                  ,'+entry_cohort^year'
 #)
 #
@@ -375,8 +379,41 @@ agg_prod <- feols(as.formula(formula_agg)
 gc()
 etable(agg_prod)
 etable(agg_prod,drop = c('alpha_hat'),
-       file = "E:\\panel_fr_res\\productivity_results\\agg_prod.tex", replace=TRUE)
+       file = "D:\\panel_fr_res\\productivity_results\\agg_prod.tex", replace=TRUE)
 
+formula <- paste0('y_final~ 1',
+                  '+ entry_abroad*(',
+                  '+ i(post, uni_pub,               0)',
+                  '+ i(post, has_idex*uni_pub,      0)',
+                  '+ i(post, has_idex*(1-uni_pub),  0)',
+                  '+ i(post, prive,                 0)',
+                  ')',
+                  '+ alpha_hat',
+                  '|',
+                  ' inst_id_field + year '
+                  ,'+ type^year '
+                  ,'+ ecole^year'
+                  ,'+ cnrs^year'
+                  ,'+ fused^year'
+                  ,'+ field^entry_year^year '
+                  ,'+ city^year'
+)
+
+
+agg_prod <- feols(as.formula(formula)
+                     ,data = sample_df %>%
+                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )] %>%
+                       .[, y_final := log(citations)- est_gamma[[5,1]]*avg_alpha_i_bar ]%>%
+                       .[entry_year <= 2003 & year > 2003] %>%
+                       .[, entry_abroad := as.numeric(!str_detect(entry_country, 'FR'))]%>%
+                       .[, post := as.numeric(year >= 2007)]
+)
+gc()
+etable(agg_prod,drop = c('alpha_hat'),
+       file = "D:\\panel_fr_res\\productivity_results\\agg_prod_étranger.tex", replace=TRUE)
+
+
+etable(agg_prod)
 
 
 fixef_brutal <- fixef(test_brutal#, fixef.iter =  5000
@@ -397,10 +434,10 @@ test <- fixef_ds_inst[str_detect(inst_id_field, 'econ')][,
 
 test[inst_id_field %in% c("I57995698econ", 'I2802331213econ',
                           "I4210092408econ",'I4210144888econ')]
-unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[author_name=='Philippe Aghion']
-unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[author_name=='Stanislas Dehaene']
+unique(sample_df[, list(author_id,author_name, field, n_obs_au,alpha_hat)])[author_name=='Philippe Aghion']
+unique(sample_df[, list(author_id,author_name, field, n_obs_au,alpha_hat)])[author_name=='Stanislas Dehaene']
 
-test2 <- unique(sample_df[, list(author_id,author_name, main_field, n_obs_au,alpha_hat)])[str_detect(main_field, 'econ')][, ":="(rank_au_akm =frank(alpha_hat))][, 
+test2 <- unique(sample_df[, list(author_id,author_name, field, n_obs_au,alpha_hat)])[str_detect(field, 'econ')][, ":="(rank_au_akm =frank(alpha_hat))][, 
                                                      rank_au_akm := rank_au_akm/max(rank_au_akm, na.rm = T)]
 test2[author_name=='Philippe Aghion']
 
@@ -415,5 +452,5 @@ sample_df <- sample_df %>%
   .[, rank_colab_akm:=frank(avg_alpha_i_bar) ]
 
 # Save results ------------------------------------------------------------
-fwrite(sample_df, "E:\\panel_fr_res\\test_with_fixed_effects.csv")
+fwrite(sample_df, "D:\\panel_fr_res\\test_with_fixed_effects.csv")
 gc()

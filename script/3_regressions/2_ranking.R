@@ -724,11 +724,12 @@ iplot(test_ranking,i.select = 7, main = 'Ranking for universities * idex')
 
 etable(test_ranking)
 test_ranking <- feols(as.formula(str_replace_all(str_replace_all(formula_ranking, 'year', 'post'), "2008", "0")),
-                      ranking_data, weights = ranking_data$n_authors)
+                      ranking_data[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )],
+                      weights = ranking_data$n_authors)
 etable(test_ranking)
 
 etable(test_ranking, keep =c( 'uni_pub','idex') 
-       ,file = "E:\\panel_fr_res\\productivity_results\\ranking.tex", replace = TRUE
+       ,file = "D:\\panel_fr_res\\productivity_results\\ranking.tex", replace = TRUE
        )
 
 
