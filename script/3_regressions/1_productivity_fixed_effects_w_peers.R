@@ -4,6 +4,7 @@ library('pacman')
 
 #install.packages('fwildclusterboot', repos ='https://s3alfisc.r-universe.dev')
 #install.packages("DIDmultiplegt", force = TRUE)
+#install.packages("DIDmultiplegtDYN", force = TRUE)
 
 library(fwildclusterboot)
 
@@ -13,7 +14,10 @@ p_load('arrow'
 ,'tidyverse'
 ,'binsreg',
 'DescTools',
-'cowplot', 'fwildclusterboot','DIDmultiplegt')
+'cowplot',
+'DIDmultiplegt',
+"DIDmultiplegtDYN"
+)
 wins_vars <- function(x, pct_level = 0.01){
   if(is.numeric(x)){
     #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
@@ -45,7 +49,10 @@ ds <- open_dataset(inputpath) %>%
          nr_source_mid_40pct_raw, nr_source_top_20pct_raw,nr_source_top_10pct_raw,nr_source_top_5pct_raw,
          avg_rank_source,nr_source_btm_50pct,
          nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
-         period_inst, uni_pub, cnrs,type, fused, idex, main_topic, city, prive, public, ecole, 
+         period_inst, uni_pub, cnrs,type, acces_rce,
+         idex, first_y_inst_period, date_first_idex,
+         fused_inst_id, fusion_date,
+         main_topic, city, prive, public, ecole, 
          n_inst_y, first_y_inst_period, 
         # n_phd_students, in_supervisor_inst, 
         # in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
@@ -127,7 +134,8 @@ sample_df <- unique(sample_df[, ':='(log_cit_w_p =log(citations/publications),
                                log_log_cit_w_p = log(log(citations/publications)),
                                log_cit_w_p_raw = log(citations_raw/publications_raw),
                                log_log_cit_w_p_raw = log(log(citations_raw/publications_raw))
-                        )])
+                        )]) %>%
+  .[, log_citations := log(citations)]
 #summary(sample_df)
 
 to_plot <- sample_df[, .(log_cit_w_p = mean(log_cit_w_p, na.rm =T),
@@ -178,18 +186,23 @@ test <- sample_df %>%
 ggplot(sample_df[, .N, by = colab])+
   geom_histogram(aes(x=log(N)))
 # regressions -------------------------------------------------------------
-formula_res <- paste0('log(citations)~ 1 + i(year, uni_pub, 2008)',
-                  '+ i(year, has_idex*uni_pub, 2008)',
-                  '+ i(year, has_idex*(1-uni_pub), 2008)',
+formula_res <- paste0('log_citations~ 1 ',
                   '| '
                   ,' type^year '
                   ,'+ cnrs^year'
-                  ,'+ fused^year'
                   ,'+ city^year'
+                  ,'+idex^year'
+                  ,'+uni_pub^year'
+                  ,'+acces_rce^year'
+                  ,'+date_first_idex^year'
+                  ,'+fusion_date^year'
                   ,'+ field^entry_cohort^year '
 )
 reg_to_residualize <- feols(as.formula(formula_res)
                             ,data = sample_df %>%
+                              .[, ':='(acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
+                                       date_first_idex = ifelse(is.na(date_first_idex), 0, date_first_idex),
+                                       fusion_date = ifelse(is.na(fusion_date), 0, fusion_date))]%>%
                               .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
 )
 gc()
@@ -223,16 +236,47 @@ sample_df <- sample_df %>%
     by = c('inst_id_field','year')] %>%
   .[, avg_alpha_i_bar := (sum_alpha_hat-alpha_hat)/(n_colab-1) ]
 ggplot(sample_df)+geom_density(aes(x=avg_alpha_i_bar))
-
+set.seed(133)
 formula_qual <- paste0('y~ avg_alpha_i_bar',
                   '| ',
-                  ' author_id + inst_id_field^year '
+                  ' author_id + inst_id_field_year'
 )
+
+p_load('future','future.apply')
+sample_df<-sample_df %>%
+  .[, inst_id_field_year := paste0(inst_id_field,'_',year)]%>%
+  .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
+
 test_qual <- feols(as.formula(formula_qual)
-                     ,data = sample_df %>%
-                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
-)
+                     ,data =sample_df, cluster = 'author_id')
 gc()
+
+options(future.globals.maxSize = 10e9)  
+future::plan(multisession)  
+results <- future_lapply(c(1000), function(i) {
+  # Ensure the columns are available in the environment
+  #sample_df <- sample_df[, list(y, avg_alpha_i_bar, author_id, inst_id_field_year)]
+  #y <- sample_df$y
+  # Call the boottest function
+  boottest(object = test_qual, param = "avg_alpha_i_bar", B = i, clustid = 'author_id',fe = author_id + inst_id_field_year)
+  
+},future.globals  = c("sample_df",'test_qual', "y", "avg_alpha_i_bar","boottest"))
+
+boottest(object = test_qual, param = "avg_alpha_i_bar", B = 100#, clustid = 'author_id',
+         #fe = ~author_id,
+         #bootstrap_type = "fnw11", 
+         #engine = 'WildBootTests.jl', maxmatsize = 2
+         #,floattype = "Float32"
+         )
+  
+gc()
+
+ns <- getNamespace("fwildclusterboot")
+ls(ns, pattern = "fixest|boot|aux|weights")  # list helpers
+# then, for any suspect function name you find:
+trace("boottest.fixest", tracer = quote(message(">> enter boottest.fixest")), 
+      print = FALSE, where = ns)
+
 
 est_gamma <- test_qual$coeftable
 est_gamma$i <- 1
@@ -315,6 +359,43 @@ sample_df <- sample_df %>%
            y_i = y- est_gamma[[5,1]]*avg_alpha_i_bar )]
 
 ggplot(unique(sample_df[, list(author_id, alpha_hat)]))+geom_density(aes(x=alpha_hat))
+
+sample_df_ch <-  sample_df %>%
+  .[, log_citations := log(citations)]%>%
+  .[, acces_rce := ifelse(is.na(acces_rce), 0, as.numeric(acces_rce)) ] %>%
+  .[!is.na(log_citations)& log_citations >-Inf & log_citations<Inf]%>%
+  .[, treat := case_when(acces_rce >0 & year >=acces_rce ~1,
+                         date_first_idex >0 & year >=date_first_idex ~2,
+                         .default=0)] %>%
+  .[, group := case_when(acces_rce >0~ acces_rce,
+                         !is.na(date_first_idex) ~ date_first_idex,
+                         .default = 0) ]
+fields_columns <- c()
+for(field in unique(sample_df_ch$field)){
+  sample_df_ch[[paste0('field_', field)]] <- as.numeric(str_detect(sample_df_ch$field, field))
+  fields_columns <- c(fields_columns, paste0('field_', field))
+}
+domains_columns <- c()
+for(domain in c("1","2","3","4")){
+  sample_df_ch[[paste0('domain_', domain)]] <- as.numeric(str_detect(sample_df_ch$domain, domain))
+  domains_columns <- c(domains_columns, paste0('domain_', domain))
+}
+
+summary(sample_df_ch$treat)
+summary(sample_df_ch$group)
+reg_to_residualize <- did_multiplegt_dyn(df=sample_df_ch,
+                                         outcome = "log_citations",
+                                         group = "group",
+                                         time = "year",
+                                         treatment = 'treat',
+                                         controls = c('entry_year','cnrs',domains_columns),
+                                         effects = 5,
+                                         effects_equal = TRUE,
+                                         placebo = 5,
+                                         cluster = "group",
+                                         graph_off = TRUE)
+summary(reg_to_residualize)
+reg_to_residualize$plot
 
 formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
        '+ i(year, has_idex*uni_pub, 2008)',
