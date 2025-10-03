@@ -1,22 +1,26 @@
 rm(list = ls())
 gc()
+#install.packages('devtools')
 library('pacman')
 
 #install.packages('fwildclusterboot', repos ='https://s3alfisc.r-universe.dev')
 #install.packages("DIDmultiplegt", force = TRUE)
 #install.packages("DIDmultiplegtDYN", force = TRUE)
+devtools::install_github("CdfInnovLab/didImputation", force = TRUE)
 
-library(fwildclusterboot)
+
+library("didImputation")
 
 p_load('arrow'
 ,'data.table'
 ,'fixest'
 ,'tidyverse'
+,'dplyr','magrittr','tidyr'
 ,'binsreg',
 'DescTools',
 'cowplot',
 'DIDmultiplegt',
-"DIDmultiplegtDYN"
+"DIDmultiplegtDYN"#,'didimputation'
 )
 wins_vars <- function(x, pct_level = 0.01){
   if(is.numeric(x)){
@@ -30,8 +34,8 @@ inputpath <- "D:\\panel_fr_res\\panel_smoothed.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
-ds <- open_dataset(inputpath) 
-ds$schema$names
+#ds <- open_dataset(inputpath) 
+#ds$schema$names
 
 ds <- open_dataset(inputpath) %>%
   filter(#all_y_in_FR >= (last_year-entry_year +1)/4
@@ -60,14 +64,15 @@ ds <- open_dataset(inputpath) %>%
 ds <- as.data.table(ds)
 
 ds <- unique(ds)
-#nrow(unique(ds[,list(author_id)])) #197840 w min_period 2 min_y_f 1/2
+#nrow(unique(ds[,list(author_id)])) #351647
+#197840 w min_period 2 min_y_f 1/2
 #  245495 w min_period 3 min_y_f 1/4
 
 gc()
 unique(ds[, list(author_id,entry_year)][])[, .N, by = 'entry_year'][order(entry_year)]
 
 ##
-inst_to_exclude <- c('I4210159570')
+#inst_to_exclude <- c('I4210159570')
 cols_to_wins <- colnames(ds)[4:19]
 sample_df <- ds[entry_year >=1965 
              & entry_year <=2003
@@ -75,7 +80,7 @@ sample_df <- ds[entry_year >=1965
              & citations >0
              #& inst_type %in% c('facility','education')
              #& country == 'FR'
-             & !(inst_id %in% inst_to_exclude) 
+             #& !(inst_id %in% inst_to_exclude) 
              & !(is.na(field))
              & !(inst_id %in% c('archive',"other"))
              ]%>%
@@ -107,7 +112,10 @@ sample_df <- ds[entry_year >=1965
            nr_source_top_10pct = ifelse(is.na(nr_source_top_10pct),0,nr_source_top_10pct),
            nr_source_top_5pct = ifelse(is.na(nr_source_top_5pct),0,nr_source_top_5pct),
            nr_source_top_10pct_raw = ifelse(is.na(nr_source_top_10pct_raw),0,nr_source_top_10pct_raw),
-           nr_source_top_5pct_raw = ifelse(is.na(nr_source_top_5pct_raw),0,nr_source_top_5pct_raw)
+           nr_source_top_5pct_raw = ifelse(is.na(nr_source_top_5pct_raw),0,nr_source_top_5pct_raw),
+           acces_rce = ifelse(is.na(acces_rce),0,acces_rce),
+           date_first_idex = ifelse(is.na(date_first_idex),0,date_first_idex),
+           fusion_date = ifelse(is.na(fusion_date),0,fusion_date)
            )] %>%
   .[, normalized_avg_rank_source_raw :=avg_rank_source_raw/max(avg_rank_source_raw), by = c('year','field') ]
 #rm(ds)
@@ -115,28 +123,24 @@ gc()
 
 
 
-unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
-unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
+#unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
+#unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
+#
+#unique(sample_df[name == 'Paris School of Economics' & is.na(field) ][, list(inst_id, author_id,author_name,field_recoded)])
+#
+#unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,field_recoded)])
+#
+#unique(sample_df[str_detect(name, 'Université Paris 1')|
+#                   str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, field,max_field,field_recoded, field_value)])
+#unique(sample_df[str_detect(name, 'Université Paris 1')|
+#                   str_detect(name, 'Panthéon-Sorbonne')&field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, field,max_field,field_recoded, field_value)])
 
-unique(sample_df[name == 'Paris School of Economics' & is.na(field) ][, list(inst_id, author_id,author_name,field_recoded)])
 
-unique(sample_df[author_name == 'Philippe Aghion' ][, list(inst_id,name, author_id,author_name,field_recoded)])
-
-unique(sample_df[str_detect(name, 'Université Paris 1')|
-                   str_detect(name, 'Panthéon-Sorbonne')][, list(inst_id, name, n_authors_sample, field,max_field,field_recoded, field_value)])
-unique(sample_df[str_detect(name, 'Université Paris 1')|
-                   str_detect(name, 'Panthéon-Sorbonne')&field_recoded !='medi'][, list(author_id, author_name, n_authors_sample, field,max_field,field_recoded, field_value)])
+nrow(unique(sample_df[, list(author_id)]))#184996 authors
 
 
-nrow(unique(sample_df[, list(author_id)]))#146189 authors
+# desc stats --------------------------------------------------------------
 
-sample_df <- unique(sample_df[, ':='(log_cit_w_p =log(citations/publications),
-                               log_log_cit_w_p = log(log(citations/publications)),
-                               log_cit_w_p_raw = log(citations_raw/publications_raw),
-                               log_log_cit_w_p_raw = log(log(citations_raw/publications_raw))
-                        )]) %>%
-  .[, log_citations := log(citations)]
-#summary(sample_df)
 
 to_plot <- sample_df[, .(log_cit_w_p = mean(log_cit_w_p, na.rm =T),
                          citations = mean(citations, na.rm = T),
@@ -176,16 +180,15 @@ save_plot("D:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
 test <- sample_df[inst_id == "I4210144005"]
 sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
 
-sample_df <- sample_df %>%
-  .[, colab := paste0(sort(unique((author_id))), collapse =','), by = c('inst_id_field','year')]%>%
-  .[, colab := str_replace_all(str_remove_all(str_remove(colab, author_id), ',$|^,'), ',{2,}', ',')]
-
-test <- sample_df %>%
-  .[, .N, by = 'colab']
-
-ggplot(sample_df[, .N, by = colab])+
-  geom_histogram(aes(x=log(N)))
 # regressions -------------------------------------------------------------
+sample_df <- sample_df %>%
+  .[!is.na(city) & !is.na(cnrs) & !is.na(type) & !is.na(uni_pub) & !is.na(idex)] %>%
+  .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )] %>%
+  .[, log_citations:=log(citations)] %>%
+  .[fusion_date >=2017 |fusion_date ==0]
+
+table(sample_df$acces_rce, sample_df$date_first_idex)
+
 formula_res <- paste0('log_citations~ 1 ',
                   '| '
                   ,' type^year '
@@ -199,29 +202,30 @@ formula_res <- paste0('log_citations~ 1 ',
                   ,'+ field^entry_cohort^year '
 )
 reg_to_residualize <- feols(as.formula(formula_res)
-                            ,data = sample_df %>%
-                              .[, ':='(acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
-                                       date_first_idex = ifelse(is.na(date_first_idex), 0, date_first_idex),
-                                       fusion_date = ifelse(is.na(fusion_date), 0, fusion_date))]%>%
-                              .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
-)
+                            ,data =sample_df)
 gc()
 
-sample_df$y <- residuals(reg_to_residualize)
-
+sample_df$y <- sample_df$log_citations - predict(reg_to_residualize,newdata = sample_df)
+sample_df <- sample_df[!is.na(y)]
 ggplot(sample_df)+geom_density(aes(x=y))
 
 gc()
 
 
+sample_df <- sample_df %>% 
+  .[, inst_id_field_year := paste0(inst_id_field,'_',year)]%>%
+  .[, ':='(n_obs_au = .N), by = "author_id"]%>%
+  .[n_obs_au >1] %>%
+  .[, ':='(n_au_inst_id_field_y = .N), by = c('inst_id_field_year')] %>%
+  .[n_au_inst_id_field_y >1]
+
 formula <- paste0('y~ 1',
                   '| ',
-                  ' author_id + inst_id_field^year '
+                  ' author_id + inst_id_field_year '
 )
 test_brutal <- feols(as.formula(formula)
-                     ,data = sample_df %>%
-                       .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
-                       )
+                     ,data = sample_df
+                     )
 gc()
 
 sample_df <- sample_df %>%
@@ -243,16 +247,11 @@ formula_qual <- paste0('y~ avg_alpha_i_bar',
 )
 
 
-sample_df<-sample_df %>%
-  .[, inst_id_field_year := paste0(inst_id_field,'_',year)]%>%
-  .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )]
-
 test_qual <- feols(as.formula(formula_qual)
                      ,data =sample_df, cluster = 'author_id')
 gc()
 
-
-est_gamma <- test_qual$coeftable
+est_gamma <- as.data.table(test_qual$coeftable)
 est_gamma$i <- 1
 est_gamma
 est_diff_alpha <- data.table(NA,1)
@@ -304,13 +303,14 @@ for(i in 2:10){
   est_gamma <-rbind(est_gamma,est_gamma_i)
   
 }
-  
+
+
 
 cp <- ggplot(est_gamma)+
   geom_point(aes(x=as.factor(i), y = Estimate))+
   geom_line(aes (x=i, y = Estimate))+
-  geom_errorbar(aes(x=i, ymin = Estimate -1.96*`Std. Error`,
-ymax = Estimate + 1.96*`Std. Error`))+ylim(0.08, 0.18)+
+  #geom_errorbar(aes(x=i, ymin = Estimate -1.96*`Std. Error`,
+  #  ymax = Estimate + 1.96*`Std. Error`))+ylim(0.08, 0.18)+
   xlab('Number of iterations')+ylab('')+
   theme_minimal()
 cp
@@ -336,40 +336,111 @@ ggplot(unique(sample_df[, list(author_id, alpha_hat)]))+geom_density(aes(x=alpha
 
 sample_df_ch <-  sample_df %>%
   .[, log_citations := log(citations)]%>%
-  .[, acces_rce := ifelse(is.na(acces_rce), 0, as.numeric(acces_rce)) ] %>%
+  .[acces_rce >0 | date_first_idex == 0] %>%
+  .[fusion_date == 0] %>%
   .[!is.na(log_citations)& log_citations >-Inf & log_citations<Inf]%>%
-  .[, treat := case_when(acces_rce >0 & year >=acces_rce ~1,
+  .[, treat := case_when(acces_rce >0 & year >=acces_rce & (date_first_idex==0 | year < date_first_idex) ~1,
                          date_first_idex >0 & year >=date_first_idex ~2,
                          .default=0)] %>%
-  .[, group := case_when(acces_rce >0~ acces_rce,
-                         !is.na(date_first_idex) ~ date_first_idex,
-                         .default = 0) ]
-fields_columns <- c()
-for(field in unique(sample_df_ch$field)){
-  sample_df_ch[[paste0('field_', field)]] <- as.numeric(str_detect(sample_df_ch$field, field))
-  fields_columns <- c(fields_columns, paste0('field_', field))
-}
-domains_columns <- c()
-for(domain in c("1","2","3","4")){
-  sample_df_ch[[paste0('domain_', domain)]] <- as.numeric(str_detect(sample_df_ch$domain, domain))
-  domains_columns <- c(domains_columns, paste0('domain_', domain))
-}
+  .[, g := case_when(acces_rce >0~ as.numeric(acces_rce) - 2008,
+                         #!is.na(date_first_idex) ~ as.numeric(date_first_idex) - 2008,
+                         .default = Inf) ] %>%  .[, t := year - 2008] %>%
+  .[,y := log_citations - avg_alpha_i_bar*est_gamma$Estimate[[10]]]
+table(sample_df_ch$treat,sample_df_ch$g)
 
-summary(sample_df_ch$treat)
-summary(sample_df_ch$group)
-reg_to_residualize <- did_multiplegt_dyn(df=sample_df_ch,
+table(sample_df_ch$treat,sample_df_ch$g)
+
+start.time <- Sys.time()
+
+feols_acces_rce <- didImputation(y0 = y ~ prive*t| author_id + inst_id + t + cnrs_t +entry_year_t+type_t+field_t #+city_t
+                                 ,cohort = "g"
+                                 ,time = 't'
+                                 ,data = sample_df_ch %>% 
+                                   .[date_first_idex == 0] %>%
+                                   .[inst_id != 'I4210159570'] %>%
+                                   .[, ':='(log_citations = log(citations_raw),
+                                            cnrs_t = paste0(cnrs,'_',t),
+                                            type_t = paste0(type,'_',t),
+                                            city_t = paste0(city,'_',t),
+                                            field_t = paste0(field,'_',t),
+                                            universite_t= paste0(main_topic, '_', t),
+                                            entry_year_t= paste0(entry_year, '_', t)
+                                   )])
+
+didplot(feols_acces_rce)
+time_taken <- Sys.time() - start.time
+time_taken
+start.time <- Sys.time()
+
+feols_acces_rce_idex <- didImputation(y0 = y ~ prive*t  | author_id + inst_id + t + cnrs_t +entry_year_t+type_t+field_t #+city_t
+                                 ,cohort = "g", time = 't'
+                                 ,data = sample_df_ch %>% 
+                                   .[acces_rce == 0 | date_first_idex > 0] %>%
+                                   .[inst_id != 'I4210159570'] %>%
+                                   .[, ':='(log_citations = log(citations_raw),
+                                            cnrs_t = paste0(cnrs,'_',t),
+                                            type_t = paste0(type,'_',t),
+                                            city_t = paste0(city,'_',t),
+                                            field_t = paste0(field,'_',t),
+                                            universite_t= paste0(main_topic, '_', t),
+                                            entry_year_t= paste0(entry_year, '_', t),
+                                            unit = paste0(author_id, '_','year')
+                                   )])
+
+didplot(feols_acces_rce_idex)+ylim(-5,6)
+time_taken <- Sys.time() - start.time
+time_taken
+sample_df_idex_only <-  sample_df %>%
+  .[, log_citations := log(citations)]%>%
+  .[acces_rce == 0] %>%
+  .[fusion_date == 0] %>%
+  .[!is.na(log_citations)& log_citations >-Inf & log_citations<Inf]%>%
+  .[, treat := case_when(date_first_idex >0 & year >=date_first_idex ~1,
+                         .default=0)] %>%
+  .[, g := case_when(date_first_idex >0~ as.numeric(date_first_idex) - 2011,
+                     .default = Inf) ] %>%  .[, t := year - 2011] %>%
+  .[,y := log_citations - avg_alpha_i_bar*est_gamma$Estimate[[10]]]
+table(sample_df_idex_only$treat,sample_df_idex_only$g)
+
+start.time <- Sys.time()
+feols_idex <- didImputation(y0 = y ~ prive*t | author_id + inst_id + t + cnrs_t +entry_year_t+type_t+field_t #+city_t
+                                      ,cohort = "g", time = 't'
+                                      ,data = sample_df_idex_only %>% 
+                                        .[inst_id != 'I4210159570'] %>%
+                                        .[, ':='(log_citations = log(citations_raw),
+                                                 cnrs_t = paste0(cnrs,'_',t),
+                                                 type_t = paste0(type,'_',t),
+                                                 city_t = paste0(city,'_',t),
+                                                 field_t = paste0(field,'_',t),
+                                                 universite_t= paste0(main_topic, '_', t),
+                                                 entry_year_t= paste0(entry_year, '_', t),
+                                                 unit = paste0(author_id, '_','year')
+                                        )])
+
+p <- didplot(feols_idex)
+p+ylim(-15,5)
+
+time_taken <- Sys.time() - start.time
+time_taken
+
+reg_to_residualize <- did_multiplegt_dyn(df=sample_df_ch
+                                        # %>% .[date_first_idex >0 | acces_rce==0]
+                                       #  %>%.[date_first_idex ==0]
+                                         ,
                                          outcome = "log_citations",
                                          group = "group",
                                          time = "year",
                                          treatment = 'treat',
-                                         controls = c('entry_year','cnrs',domains_columns),
-                                         effects = 5,
+                                         controls = c('alpha_hat'),
+                                         trends_nonparam = c('cnrs',fields_columns ),
+                                         effects = 10,
                                          effects_equal = TRUE,
-                                         placebo = 5,
+                                         placebo = 10,
                                          cluster = "group",
                                          graph_off = TRUE)
 summary(reg_to_residualize)
 reg_to_residualize$plot
+
 
 formula <- paste0('y_final~ 1 + i(year, uni_pub, 2008)',
        '+ i(year, has_idex*uni_pub, 2008)',

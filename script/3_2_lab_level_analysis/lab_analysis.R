@@ -169,22 +169,21 @@ reg_df <- ds %>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins, by = c('type_r','type_s')]%>%
   .[, size_s:= ifelse(inst_id_sender == 'entrant', 
                       sum(total_w), size_s), by= c('inst_id_sender','year')]%>%
+  .[, ':='(acces_rce_r = fifelse(is.na(acces_rce_r), 0, as.numeric(acces_rce_r) ),
+           acces_rce_s = fifelse(is.na(acces_rce_s), 0, as.numeric(acces_rce_s) ),
+           date_first_idex_r = fifelse(is.na(date_first_idex_r), 0, as.numeric(date_first_idex_r) ),
+           date_first_idex_s = fifelse(is.na(date_first_idex_s), 0, as.numeric(date_first_idex_s) ),
+           fusion_date_r = fifelse(is.na(fusion_date_r), 0, as.numeric(fusion_date_r) ),
+           fusion_date_s = fifelse(is.na(fusion_date_s), 0, as.numeric(fusion_date_s) )
+           )] %>%
   .[year >=2000 & !(inst_id_sender == 'abroad' & inst_id_receiver == 'abroad')] %>%
   .[inst_id_receiver != inst_id_sender] %>%
   #.[inst_id_sender!='abroad' & inst_id_receiver != 'abroad'
   #  
   # & type_r == 'facility' & type_s == 'facility'
   #  ] %>%
-  .[(!is.na(uni_pub_r) | inst_id_receiver == 'abroad') 
-    & (!is.na(uni_pub_s) | inst_id_sender %in% c('abroad','entrant'))
-    & !(inst_id_sender == 'entrant' & inst_id_receiver == 'abroad')
-    ] %>%
-  .[, ':='(uni_pub_r = fifelse(is.na(uni_pub_r), 0, uni_pub_r),
-           uni_pub_s = fifelse(is.na(uni_pub_s), 0, uni_pub_s),
-           cnrs_r = fifelse(inst_id_receiver =="abroad", 0, cnrs_r),
+  .[, ':='(cnrs_r = fifelse(inst_id_receiver =="abroad", 0, cnrs_r),
            cnrs_s = fifelse(inst_id_sender %in% c("abroad",'entrant'), 0, cnrs_s),
-           fused_r = ifelse(inst_id_receiver =="abroad", 0, fused_r),
-           fused_s = ifelse(inst_id_sender %in% c("abroad",'entrant'), 0, fused_s),
            type_r = case_when(inst_id_receiver =='abroad'~ 'abroad', 
                               .default = type_r),
            type_s = case_when(inst_id_sender =='abroad' ~ 'abroad',
@@ -198,9 +197,9 @@ reg_df <- ds %>%
            
            
   )] %>%
-  .[, size_fe := n_distinct(paste0(inst_id_receiver, inst_id_sender)), by =c('uni_pub_r','uni_pub_s','type_r','type_s') ] %>%
-  .[size_fe >=250 #& size_r >=5 & size_s >=5 
-    ] %>%
+  #.[, size_fe := n_distinct(paste0(inst_id_receiver, inst_id_sender)), by =c('uni_pub_r','uni_pub_s','type_r','type_s') ] %>%
+  #.[size_fe >=250 #& size_r >=5 & size_s >=5 
+  #  ] %>%
   .[ !is.na(type_s) & !is.na(type_r)
     # & type_s %in% c('facility','abroad',"entrant"#,'government','company'
     #               ) & type_r %in% c('facility','abroad'#,'government','company'
@@ -218,8 +217,8 @@ reg_df <- ds %>%
   .[, n_obs := n_distinct(year), by = unit] %>%
   .[entry_year_pair <=2003]
 
-reg_df <- reg_df[size_r_03 >=5 & size_s_03 >= 5]
-
+#reg_df <- reg_df[size_r_03 >=5 & size_s_03 >= 5]
+gc()
 nrow(unique(reg_df[, list(unit)]))
 
 all_combinations <- CJ(
@@ -231,13 +230,15 @@ reg_df <- merge(reg_df, all_combinations, by = c('unit', 'year'), all.x = TRUE, 
 setorder(reg_df, unit, year)
 ggplot(reg_df[,.N, by='year'])+geom_line(aes(x=year, y=N))
 
-cols_to_fill_down_r <-c( "name_r","city_r","fused_r", "uni_pub_r"         
+cols_to_fill_down_r <-c( "name_r","city_r", "uni_pub_r"         
                       ,"cnrs_r","type_r","main_topic_r","topic_share_r",
-                       "entry_year_r", "ecole_r",'universite_r','public_r','prive_r','idex_r','size_r'
+                       "entry_year_r", "ecole_r",'universite_r','public_r','prive_r','size_r',
+                      'acces_rce_r','date_first_idex_r','fusion_date_r'
                       )
-cols_to_fill_down_s <-c(  "name_s","city_s","fused_s","uni_pub_s", "cnrs_s"            
+cols_to_fill_down_s <-c(  "name_s","city_s","uni_pub_s", "cnrs_s"            
                          ,"type_s","topic_share_s", "main_topic_s",   
-                        "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','idex_s','size_s'
+                        "entry_year_s", "ecole_s",'universite_s','public_s','prive_s','size_s',
+                        'acces_rce_s','date_first_idex_s','fusion_date_s'
                         )
 
 unit_cols <- c("inst_id_sender", "inst_id_receiver",'entry_year_pair','n_obs', 'size_r_03','size_s_03')
@@ -262,11 +263,11 @@ reg_df <- reg_df %>%
            main_topic_r = ifelse(inst_id_receiver =='abroad', 'undefined', main_topic_r),
            type_s_type_r_year = paste0(type_s, '_',type_r, '_', year)
   )] %>%
-  .[, ':='( has_idex_r = ifelse(!is.na(idex_r) & idex_r != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  ),
-            has_idex_s = ifelse(!is.na(idex_s) & idex_s != 'no_idex' & !str_detect(idex_s, 'annulee'), 1, 0  ),
-            idex_annulee_r = ifelse(!is.na(idex_r) & str_detect(idex_r, 'annulee'), 1, 0  ),
-            idex_annulee_s = ifelse(!is.na(idex_s) & str_detect(idex_s, 'annulee'), 1, 0  )
-  )] %>%
+  #.[, ':='( has_idex_r = ifelse(!is.na(idex_r) & idex_r != 'no_idex' & !str_detect(idex_r, 'annulee'), 1, 0  ),
+  #          has_idex_s = ifelse(!is.na(idex_s) & idex_s != 'no_idex' & !str_detect(idex_s, 'annulee'), 1, 0  ),
+  #          #idex_annulee_r = ifelse(!is.na(idex_r) & str_detect(idex_r, 'annulee'), 1, 0  ),
+  #          #idex_annulee_s = ifelse(!is.na(idex_s) & str_detect(idex_s, 'annulee'), 1, 0  )
+  #)] %>%
   .[year >= 2003]
 rm(ds,all_combinations)
 gc()
@@ -283,8 +284,8 @@ reg_df[, .N, by = c('inst_id_sender','inst_id_receiver')][, .N, by = 'N'][order(
 
 #unique(reg_df[uni_pub_s == 0 & uni_pub_r == 0 & cnrs_s + cnrs_r >0][, list(name_r, cnrs_r, name_s,cnrs_s, parent_r, parent_s)])
 reg_df <- reg_df %>%
-  .[, ":="(max_pair = max(movers_w), n_y = n_distinct(year)), by = c('inst_id_sender','inst_id_receiver')] %>%
-  .[year >=2003 & max_pair >0.2 & n_y >=3]
+  .[, ":="(max_pair = max(movers_w), n_y = n_distinct(year)), by = c('inst_id_sender','inst_id_receiver')] #%>%
+#  .[year >=2003 & max_pair >0.2 & n_y >=3]
 
 
 # III.bis Sample desc stats -----------------------------------------------
@@ -388,13 +389,13 @@ fe_large <- paste0(
                               ,"    inst_id_receiver + inst_id_sender + year"
                               ,"  + unit"
                               ,"  + cnrs_r^year + cnrs_s^year + cnrs_r^cnrs_s^year"
-                              ,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
+                              #,"  + fused_r^year + fused_s^year + fused_r^fused_s^year"
                               #,"  + ecole_r^year + ecole_s^year + ecole_r^ecole_s^year"
                               ,"   + type_r_year + type_s_year + type_s_type_r_year"
                               ##,"   + public_r^year + public_s^year"
-                              ,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
+                              #,"   + main_topic_r^year + main_topic_s^year + main_topic_s^main_topic_r^year"
                               ," +size_r_03^year + size_s_03^year"
-                              ," +city_r^year + city_s^year + city_r^city_s^year"
+                              #," +city_r^year + city_s^year + city_r^city_s^year"
 )
 fe_min <- '| inst_id_receiver + inst_id_sender + year + unit'
 
