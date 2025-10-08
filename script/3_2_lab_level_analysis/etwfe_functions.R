@@ -1,13 +1,16 @@
-agg_etwfe <- function(stag_model, R = 0, t_limit = 0){
+agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
     .[, d := str_extract(var, '(?<=i_|j_)[a-z_]*(?=_g)')] %>%
-    .[, type := ifelse(str_detect(var, '_i_'), 'delta','gamma' )] %>%
+    .[, type := case_when(str_detect(var, '_i_') ~ 'delta',
+                          str_detect(var, 'j')~'gamma',
+                          .default = '')] %>%
     .[, g := str_extract(var, '(?<=g)[0-9]{1,4}')] %>%
     .[, year := str_extract(var, '(?<=y)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)] %>%
-    .[, treat := paste0(type, '_', d)]
+    .[, treat := ifelse(type!='',
+                        paste0(type, '_', d), d)]
   
   if(t_limit !=0){
     coefs <- coefs[abs(t)<= t_limit]
@@ -21,13 +24,13 @@ agg_etwfe <- function(stag_model, R = 0, t_limit = 0){
     to_sum <- coefs %>% .[treat == trt & g!="0" & t>0] 
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
     if(str_detect(trt, '_a_')){
-      w <- reg_df_s %>%
+      w <- data %>%
         .[inst_id_sender == 'abroad' | inst_id_receiver == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[, w := w/sum(w)] %>% .[,year := as.character(year)]
     }
     else{
-      w <- reg_df_s %>%
+      w <- data %>%
         .[inst_id_sender != 'abroad' & inst_id_receiver != 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[, w := w/sum(w)] %>% .[,year := as.character(year)]
@@ -81,13 +84,13 @@ agg_etwfe_het <- function(stag_model, by = 't'){
     to_sum <- coefs %>% .[treat == trt] 
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
     if(str_detect(trt, '_a_')){
-      w <- reg_df_s %>%
+      w <- data %>%
         .[inst_id_sender == 'abroad' | inst_id_receiver == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)]
     }
     else{
-      w <- reg_df_s %>%
+      w <- data %>%
         .[inst_id_sender != 'abroad' & inst_id_receiver != 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)] 

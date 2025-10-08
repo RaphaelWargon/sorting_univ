@@ -14,8 +14,8 @@ library("didImputation")
 p_load('arrow'
 ,'data.table'
 ,'fixest'
-,'tidyverse'
-,'dplyr','magrittr','tidyr'
+#,'tidyverse'
+,'dplyr','magrittr','tidyr','ggplot2'
 ,'binsreg',
 'DescTools',
 'cowplot',
@@ -29,6 +29,8 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
+setwd('U')
+inputpath <- "panel_smoothed.parquet"
 
 inputpath <- "D:\\panel_fr_res\\panel_smoothed.parquet"
 
@@ -42,7 +44,15 @@ ds <- open_dataset(inputpath) %>%
           last_year-entry_year >2
          & entry_year >=1965 
          & year >= 1997
-
+         & entry_year >=1965 
+         & entry_year <=2003
+         & year >= 1997
+         & citations >0
+         #& inst_type %in% c('facility','education')
+         #& country == 'FR'
+         #& !(inst_id %in% inst_to_exclude) 
+         & !(is.na(field))
+         & !(inst_id %in% c('archive',"other"))
   ) %>%
   select(author_id, author_name, gender, year,
          entry_year,
@@ -74,15 +84,7 @@ unique(ds[, list(author_id,entry_year)][])[, .N, by = 'entry_year'][order(entry_
 ##
 #inst_to_exclude <- c('I4210159570')
 cols_to_wins <- colnames(ds)[4:19]
-sample_df <- ds[entry_year >=1965 
-             & entry_year <=2003
-             & year >= 1997
-             & citations >0
-             #& inst_type %in% c('facility','education')
-             #& country == 'FR'
-             #& !(inst_id %in% inst_to_exclude) 
-             & !(is.na(field))
-             & !(inst_id %in% c('archive',"other"))
+sample_df <- ds[
              ]%>%
   .[, ':='(n_inst_id_sample = n_distinct(inst_id),
            field = first(field, na_rm = TRUE),
@@ -106,7 +108,7 @@ sample_df <- ds[entry_year >=1965
  # .[n_obs_au >=3]%>%
   .[,inst_id_field := paste0(inst_id, field)] %>%
   .[, entry_cohort := fifelse(entry_year <= 2000, floor(entry_year/5)*5, entry_year)]%>%
-  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]%>%
+  #.[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]%>%
   .[, n_obs_univ := .N, by = 'inst_id']%>%
   .[, ":="(avg_rank_source_raw = ifelse(is.na(avg_rank_source_raw),0,avg_rank_source_raw),
            nr_source_top_10pct = ifelse(is.na(nr_source_top_10pct),0,nr_source_top_10pct),
@@ -120,9 +122,6 @@ sample_df <- ds[entry_year >=1965
   .[, normalized_avg_rank_source_raw :=avg_rank_source_raw/max(avg_rank_source_raw), by = c('year','field') ]
 #rm(ds)
 gc()
-
-
-
 #unique(sample_df[name == 'Paris School of Economics'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
 #unique(sample_df[name == 'Paris School of Business'][, list(inst_id, n_authors_sample, field,field_recoded,max_field, field_value)])
 #
@@ -183,13 +182,13 @@ sample_df[log_cit_w_p == -Inf][, list(citations, publications)]
 # regressions -------------------------------------------------------------
 sample_df <- sample_df %>%
   .[!is.na(city) & !is.na(cnrs) & !is.na(type) & !is.na(uni_pub) & !is.na(idex)] %>%
-  .[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )] %>%
+  #.[, has_idex := ifelse(!is.na(idex) & idex != 'no_idex' & !str_detect(idex, 'annulee'), 1, 0  )] %>%
   .[, log_citations:=log(citations)] %>%
   .[fusion_date >=2017 |fusion_date ==0]
 
 table(sample_df$acces_rce, sample_df$date_first_idex)
 
-formula_res <- paste0('log_citations~ 1 ',
+formula_res <- paste0('citations_raw~ 1 ',
                   '| '
                   ,' type^year '
                   ,'+ cnrs^year'
@@ -204,13 +203,12 @@ formula_res <- paste0('log_citations~ 1 ',
 reg_to_residualize <- feols(as.formula(formula_res)
                             ,data =sample_df)
 gc()
-
-sample_df$y <- sample_df$log_citations - predict(reg_to_residualize,newdata = sample_df)
+predicted_values <- predict(reg_to_residualize,newdata = sample_df)
+sample_df$y <- sample_df$citations_raw - predicted_values
 sample_df <- sample_df[!is.na(y)]
 ggplot(sample_df)+geom_density(aes(x=y))
 
 gc()
-
 
 sample_df <- sample_df %>% 
   .[, inst_id_field_year := paste0(inst_id_field,'_',year)]%>%
@@ -327,12 +325,146 @@ cp_aufe
 save_plot("D:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp_aufe)
 
 
-sample_df <- sample_df %>%
+sample_df_reg <- sample_df %>%
   .[, ':='(alpha_hat_i_minus_1 = alpha_hat,
            alpha_hat = fixef(test_qual)$author_id[author_id],
-           y_i = y- est_gamma[[5,1]]*avg_alpha_i_bar )]
+           y_i = citations_raw- est_gamma[[5,1]]*avg_alpha_i_bar- alpha_hat )] %>%
+  .[!(acces_rce %in%  2013:2015) & !(date_first_idex %in% c(2011,2013, 2014))]
+
+
+ggplot(unique(sample_df_reg[, .N, by = c('acces_rce','year')][acces_rce != '0']))+
+  geom_line(aes(x=year, y= N, color = acces_rce))+ylim(0,12000)
+ggplot(unique(sample_df_reg[, .N, by = c('date_first_idex','year')][date_first_idex != '0']))+
+  geom_line(aes(x=year, y= N, color = as.factor(date_first_idex)))+ylim(0,20000)
+
+
 
 ggplot(unique(sample_df[, list(author_id, alpha_hat)]))+geom_density(aes(x=alpha_hat))
+
+gc()
+list_g = list("acces_rce" = sort(unique(sample_df_reg[acces_rce !=0]$acces_rce))
+              ,"date_first_idex" = sort(unique(sample_df_reg[date_first_idex !=0]$date_first_idex))
+              
+              , "fusion_date" = sort(unique(sample_df_reg[fusion_date !=0]$fusion_date))
+)
+gc()
+treatvars <- c()
+for(d in c('acces_rce'#, 'date_first_idex'#, 'fusion_date'#,'rce_idex'
+)){
+  for(g_i in list_g[[d]]){
+    print(paste0(d, ': ', g_i))
+    for(y in unique(sample_df_reg$year)){
+      varname = paste0('D_i_', d, '_g', as.character(g_i), '_y', as.character(y))
+      sample_df_reg[[varname]] <- as.numeric( (sample_df_reg[[paste0(d)]] == g_i)
+                                          & (sample_df_reg[["year"]] == y))
+      treatvars <- c(treatvars, varname)
+    }
+  }
+}  
+length(treatvars)
+
+var  = 'y_i'
+formula_event_study_stag <- paste0('~', paste0(treatvars, collapse = "+"))
+fe_min = '| inst_id_field + year'
+fe_large = paste0(  '|'
+                    ,' inst_id_field + year '
+                    ,'+ type^year '
+                    ,'+ ecole^year'
+                    ,'+ cnrs^year'
+                    ,'+ field^entry_year^year '
+                    ,'+ city^year')
+gc()
+
+es_stag <- feols(as.formula(paste0( "y_i",
+                                   formula_event_study_stag, fe_min))
+                 , data = sample_df_reg
+                 ,cluster = c('author_id')
+) 
+
+gc()
+
+all_coefs <- as.data.table(es_stag_w_ctrl$coeftable, keep.rownames = TRUE)
+all_coefs <- all_coefs %>%
+  .[, d := str_extract(rn, '(?<=i_|j_)[a-z_]*(?=_g)')] %>%
+  .[, type := case_when(str_detect(rn, '_i_') ~ 'delta',
+                        str_detect(rn, 'j')~'gamma',
+                        .default = '')] %>%
+  .[, g := str_extract(rn, '(?<=g)[0-9]{1,4}')] %>%
+  .[, year := str_extract(rn, '(?<=y)[0-9]{4}')] %>%
+  .[, t := as.numeric(year)-as.numeric(g)] %>%
+  .[, treat := ifelse(type!='',
+                      paste0(type, '_', d), d)]
+
+w <- sample_df_reg %>%
+  .[, .(n  = .N), by = c("acces_rce", "year") ] %>% 
+  .[,year := as.character(year)]
+colnames(w) <- c('g','year', 'n')
+all_coefs <- merge(all_coefs, w, by= c('g','year'))
+
+
+agg_stag <- agg_effects(es_stag, sample_df)
+agg_stag_by_t <- agg_effect_het(es_stag, sample_df, by  ='t')
+
+
+for(treat in unique(agg_stag_by_t$treatment)){
+  p <- ggplot(agg_stag_by_t %>% .[treatment %in% c(treat) & t %in% -7:7])+
+    geom_point(aes(x= t, y = est, shape = treatment))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std, linetype = treatment))+
+    geom_vline(aes(xintercept = 0.5), color = 'red')+geom_hline(aes(yintercept = 0), linetype = "dashed")+
+    labs(title = paste0('Treatment: ', treat))+
+    theme_bw()
+  print(p)
+}
+gc()
+agg_stag_by_g <- agg_effect_het(es_stag, sample_df, by  ='g')
+
+ggplot(agg_stag_by_g)+
+  geom_point(aes(x= g, y = est, shape = treatment))+
+  geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std, linetype = treatment))+
+  geom_vline(aes(xintercept = 0.5), color = 'red')+geom_hline(aes(yintercept = 0), linetype = "dashed")+
+  labs(title = paste0('Treatment: ', treat))+
+  theme_bw()
+gc()
+
+
+start_time <- Sys.time()
+es_stag_w_ctrl <- feols(as.formula(paste0(var, formula_event_study_stag, fe_min))
+                      , data = sample_df_reg
+                      ,cluster = c('author_id')
+) 
+time_taken <- Sys.time()-start_time
+gc()
+time_taken
+
+agg_stag <- agg_effects(es_stag_w_ctrl, sample_df)
+agg_stag_by_t <- agg_effect_het(es_stag_w_ctrl, sample_df, by  ='t')
+
+
+for(treat in unique(agg_stag_by_t$treatment)){
+  p <- ggplot(agg_stag_by_t %>% .[treatment %in% c(treat) & t %in% -7:7])+
+    geom_point(aes(x= t, y = est, shape = treatment))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std, linetype = treatment))+
+    geom_vline(aes(xintercept = 0.5), color = 'red')+geom_hline(aes(yintercept = 0), linetype = "dashed")+
+    labs(title = paste0('Treatment: ', treat))+
+    theme_bw()
+  print(p)
+}
+gc()
+agg_stag_by_g <- agg_effect_het(es_stag_w_ctrl, sample_df, by  ='g')
+
+for(treat in unique(agg_stag_by_g$treatment)){
+  p <- ggplot(agg_stag_by_g)+
+    geom_point(aes(x= g, y = est, shape = treatment))+
+    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std, linetype = treatment))+
+    geom_vline(aes(xintercept = 0.5), color = 'red')+geom_hline(aes(yintercept = 0), linetype = "dashed")+
+    labs(title = paste0('Treatment: ', treat))+
+    theme_bw()
+  print(p)
+}
+gc()
+ 
+
+
 
 sample_df_ch <-  sample_df %>%
   .[, log_citations := log(citations)]%>%
