@@ -29,64 +29,300 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
-inputpath <- "D:\\panel_fr_res\\inst_pub_y.parquet"
+inputpath <- "E:\\panel_fr_res\\inst_pub_y.parquet"
 
 ds <- open_dataset(inputpath)
 ds <- as.data.table(ds)
 gc()
 
+cols_to_wins <- c("publications_raw","citations_raw","nr_source_btm_50pct_raw",
+                  "nr_source_mid_40pct_raw","nr_source_top_20pct_raw","nr_source_top_10pct_raw",
+                  "nr_source_top_5pct_raw","n_au")
+
 ds_clean <- ds %>%
-  .[is.na(fusion_date) | fusion_date >=2017] %>%
+  #.[is.na(fusion_date) | fusion_date >=2017] %>%
   .[,":="(idex = ifelse(is.na(idex), 'no_idex', idex),
-         acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
-         date_first_idex  = ifelse(is.na(date_first_idex ), 0, date_first_idex),
-         fusion_date = ifelse(is.na(fusion_date), 0, fusion_date),
-         fused_inst_id = ifelse(is.na(fused_inst_id), inst_id, fused_inst_id))]%>%
-  .[, group := case_when(acces_rce == 0 & date_first_idex == 0  ~ 0,
-                           acces_rce >0 & date_first_idex == 0 ~1,
-                           acces_rce >0 & date_first_idex >0 ~2,
-                           acces_rce ==0 & date_first_idex >0 ~3) ] %>%
+         acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
+         date_first_idex  = ifelse(is.na(date_first_idex ), "0", date_first_idex),
+         fusion_date = ifelse(is.na(fusion_date), "0", fusion_date),
+         merged_inst_id = ifelse(is.na(merged_inst_id), inst_id, merged_inst_id))]%>%
   .[, t := year-2007] %>%
   .[,':='(first_y_lab = min(year, na.rm = T),
           pub_2002 = max(as.numeric(year ==2002)*publications_raw, na.rm=T),
           cit_2002 = max(as.numeric(year ==2002)*citations_raw, na.rm=T)
-  ), by = 'inst_id' ]
+  ), by = 'inst_id' ]%>%
+  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
+  .[year >=2003  & year < 2020& !is.na(field)] %>%
+  .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
+  .[str_count(field, ',')<2] %>%
+  .[, n_obs := n_distinct(year), by = c('merged_inst_id','field')] %>%
+  .[n_obs == max(n_obs)]
+
+summary(ds_clean$n_obs)
+summary(ds_clean$n_au)
+
 gc()
-table(ds_clean$group)
-cols_to_wins <- c("publications_raw","citations_raw","nr_source_btm_50pct_raw",
-                  "nr_source_mid_40pct_raw","nr_source_top_20pct_raw","nr_source_top_10pct_raw",
-                  "nr_source_top_5pct_raw","pub_2002","cit_2002")
-data_acces_rce <- ds_clean %>% .[group %in% c(0,1)] %>%
-  .[, g := fifelse(acces_rce ==0, Inf, as.numeric(acces_rce) - 2008)] %>%
-  .[year %in% 1997:2020 ] %>%
-  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]
-acces_rce_units <- unique(data_acces_rce[, list(inst_id,name,group,type_fr,type)])
-table(data_acces_rce$g) 
-ggplot(data_acces_rce %>%
-         .[, .N, by = c('g','year')])+
-  geom_line(aes(x=year,y=N,color= as.factor(g)))
+nrow(unique(ds_clean[, list(merged_inst_id, field)]))
+table(unique(ds_clean[, list(merged_inst_id, field, acces_rce)])$acces_rce)
+table(unique(ds_clean[, list(merged_inst_id, field, date_first_idex)])$date_first_idex)
+table(unique(ds_clean[, list(merged_inst_id, field, fusion_date)])$fusion_date)
 
-ggplot(data_acces_rce %>%
-         .[, .N, by = c('g','first_y_lab')])+
-  geom_point(aes(x=first_y_lab,y=N,color= as.factor(g), group = as.factor(g)))
+test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date)])[fusion_date=="2009"]
 
-ggplot(data_acces_rce %>%
-         .[, lapply(.SD, mean, na.rm= T), by = c('g','year'), .SDcols = cols_to_wins])+
-  geom_line(aes(x=year,y=citations_raw,color= as.factor(g)))
+list_g = list( "acces_rce" = sort(unique(ds_clean[acces_rce !=0]$acces_rce))
+               ,"date_first_idex" = sort(unique(ds_clean[date_first_idex !=0]$date_first_idex))
+               , "fusion_date" = sort(unique(ds_clean[fusion_date !=0]$fusion_date))
+)
+gc()
 
-feols_acces_rce <- didImputation(y0 = citations_raw ~ 0 | inst_id + t + cnrs_t+pub_2002_t +first_y_lab_t+type_t#+main_topic_t #+city_t
-                                 ,cohort = "g",
-                                 data = data_acces_rce %>% 
-                                   .[inst_id != 'I4210159570'] %>%
-                                   .[, ':='(log_citations = log(citations_raw),
-                                                                    cnrs_t = paste0(cnrs,'_',t),
-                                                                    type_t = paste0(type,'_',t),
-                                                                    city_t = paste0(city,'_',t),
-                                                                    main_topic_t = paste0(main_topic,'_',t),
-                                                                    universite_t= paste0(main_topic, '_', t),
-                                                                    first_y_lab_t= paste0(main_topic, '_', t),
-                                                                    pub_2002_t = paste0(pub_2002, '_', t)
-                                                                    )])
 
-plot(feols_acces_rce)
+formula_elements <- c()
+for(d in c('acces_rce'#
+           , 'date_first_idex', 'fusion_date'#,'rce_idex'
+)){
+  for(g_i in list_g[[d]]){
+    print(paste0(d, ': ', g_i))
+    varname =paste0(d, '_', g_i)
+    ref = as.character(as.numeric(g_i)-1)
+    ds_clean[[varname]] <- as.numeric((ds_clean[[paste0(d)]] == g_i))
+    formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+  }}  
+length(formula_elements)
+
+
+fe_min = ' |merged_inst_id^field + year'
+fe_large = paste0(  ' |merged_inst_id^field + '
+                    ,'year '
+                    ,'+ type^year '
+                    ,'+ public^year'
+                    ,'+ ecole^year'
+                    ,'+ cnrs^year'
+                    ,'+ field^year'
+                    ,'+ city^year'
+
+)
+gc()
+
+list_es = list()
+
+agg_stag <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, pvalue_pretrend= 0, type = '',  var = '', ctrl = '') %>% .[treat != '']
+agg_stag_by_t <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0, n = '', var = '',  ctrl = '') %>% .[treatment != '']
+agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0, g = 0, n = '', var = '',  ctrl = '') %>% .[treatment != '']
+
+dict_vars <- c('acces_rce'= 'University autonomy',
+               'date_first_idex'='Received an IDEX',
+               'fusion_date'= "Merged establishment",
+               "publications_raw" = 'Publications',
+               "citations_raw"='Citations',
+               "avg_publications" = 'Average publications',
+               "avg_citations"='Average citations',
+               "n_au" = "Number of researchers",
+               "nr_source_btm_50pct_raw"="Bottom 50% journal publications",
+               "nr_source_mid_40pct_raw"="Middle 40% journal publications",
+               "nr_source_top_20pct_raw"="Top 20% journal publications", 
+               "nr_source_top_10pct_raw" ="Top 10% journal publications", 
+               "nr_source_top_5pct_raw" ="Top 5% journal publications",
+               "type" = 'Institution Type',
+               "city"=  'City',
+               'cnrs'='CNRS',
+               'public'='Public Status',
+               'ecole'='Grande Ecole status',
+               'main_topic'='Main field',
+               "|merged_inst_id"= 'Institution',
+               " |merged_inst_id"= 'Institution'
+)
+outcomes <- c('n_au',
+              "publications_raw","citations_raw","nr_source_top_5pct_raw",
+              'avg_publications',
+              'avg_citations')
+
+
+ds_clean <- ds_clean %>%
+  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
+  .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
+           avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
+  .[merged_inst_id != "I90183372"]
+
+for(var in outcomes){
+  
+  no_ctrl_path = "E:\\panel_fr_res\\productivity_results\\labs\\no_ctrl\\"
+  ctrl_path = "E:\\panel_fr_res\\productivity_results\\labs\\ctrl\\"
+  if (!file.exists(no_ctrl_path)){
+    dir.create(no_ctrl_path, recursive = TRUE)
+  }
+  if (!file.exists(ctrl_path)){
+    dir.create(ctrl_path, recursive = TRUE)
+  }
+  
+  
+  
+
+list_es[[var]] <- list()
+
+start_time <- Sys.time()
+es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_min))
+                  , data = ds_clean
+                  ,cluster = c('merged_inst_id')
+) 
+time_taken <- Sys.time() - start_time
+time_taken
+
+list_es[[var]][['no_ctrl']] <- es_stag
+
+agg_stag_no_ctrl <- agg_effects(es_stag, ds_clean)%>%
+  .[, var := var] %>% .[, ctrl := 'None']
+
+agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
+agg_stag_by_t_no_ctrl <- agg_effect_het(es_stag, ds_clean, by  ='t')%>%
+  .[, var := var] %>% .[, ctrl := 'None']
+agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_no_ctrl)
+
+
+for(treat in unique(agg_stag_by_t_no_ctrl$treatment)){
+  p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
+    geom_point(aes(x= t, y = est))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+    theme_bw()
+  pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_t',".pdf"))
+  print(p)
+  dev.off() 
+  rm(p)
+}
+gc()
+
+agg_stag_by_g_no_ctrl <- agg_effect_het(es_stag, ds_clean, by  ='g')%>%
+  .[, var := var] %>% .[, ctrl := 'None']
+agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_no_ctrl)
+
+
+for(treat in unique(agg_stag_by_g_no_ctrl$treatment)){
+  p <- ggplot(agg_stag_by_g_no_ctrl %>% .[treatment %in% c(treat) ])+
+    geom_point(aes(x= g, y = est))+
+    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+    theme_bw()
+  pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_g',".pdf"))
+  print(p)
+  dev.off()
+  rm(p)
+}
+gc()
+
+
+
+start_time <- Sys.time()
+es_stag_ctrl <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_large))
+                   , data = ds_clean
+                   ,cluster = c('merged_inst_id')
+) 
+time_taken <- Sys.time() - start_time
+time_taken
+
+list_es[[var]][['ctrl']] <- es_stag
+
+
+agg_stag_ctrl <- agg_effects(es_stag_ctrl, ds_clean)%>%
+  .[, var := var] %>% .[, ctrl := fe_large]
+
+agg_stag <- rbind(agg_stag, agg_stag_ctrl)
+agg_stag_by_t_ctrl <- agg_effect_het(es_stag_ctrl, ds_clean, by  ='t')%>%
+  .[, var := var] %>% .[, ctrl := fe_large]
+agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_ctrl)
+
+for(treat in unique(agg_stag_by_t_ctrl$treatment)){
+  p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
+    geom_point(aes(x= t, y = est))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+    theme_bw()
+  pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_t',".pdf"))
+  print(p)
+  dev.off() 
+  rm(p)
+}
+gc()
+
+agg_stag_by_g_ctrl <- agg_effect_het(es_stag_ctrl, ds_clean, by  ='g')%>%
+  .[, var := var] %>% .[, ctrl := fe_large]
+agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_ctrl)
+
+for(treat in unique(agg_stag_by_g_ctrl$treatment)){
+  p <- ggplot(agg_stag_by_g_ctrl %>% .[treatment %in% c(treat) ])+
+    geom_point(aes(x= g, y = est))+
+    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
+    theme_bw()
+  pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_g',".pdf"))
+  print(p)
+  dev.off() 
+  rm(p)
+}
+gc()
+
+
+}
+
+pre_mean <- list()
+for(var in names(list_es)){
+  pre_mean[[var]] <- round(mean((ds_clean[year < 2009] %>%
+                                   filter(!!as.symbol(var) < Inf & !!as.symbol(var) >-Inf))[[var]], na.rm =T),2)
+}
+n_obs <- list()
+r_2 <- list()
+for(var in names(list_es)){
+  n_obs[[ paste0(var, " | ", fe_min)]] <- list_es[[var]][['no_ctrl']]$nobs
+  n_obs[[ paste0(var, " | ", fe_large)]] <- list_es[[var]][['ctrl']]$nobs
+  r_2[[ paste0(var, " | ", fe_min)]] <-   round(list_es[[var]][['no_ctrl']]$pseudo_r2, 5)
+  r_2[[ paste0(var, " | ", fe_large)]] <- round(list_es[[var]][['ctrl']]$pseudo_r2   , 5)
+}
+
+make_stargazer_like_table_dt(unique(agg_stag%>%
+                               .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
+                             var_map = dict_vars, 
+                             treat_map = dict_vars, 
+                             var_order = outcomes, 
+                             pre_mean = pre_mean,
+                             n_obs = n_obs,
+                             r_2 = r_2,
+                             drop_unlisted_vars = TRUE,
+                             save_path = 'E:\\panel_fr_res\\productivity_results\\labs\\agg_att_lab_productivity_table.tex'
+                             )
+#data_acces_rce <- ds_clean %>% .[group %in% c(0,1)] %>%
+#  .[, g := fifelse(acces_rce ==0, Inf, as.numeric(acces_rce) - 2008)] %>%
+#  .[year %in% 1997:2020 ] %>%
+#  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]
+#acces_rce_units <- unique(data_acces_rce[, list(inst_id,name,group,type_fr,type)])
+#table(data_acces_rce$g) 
+#ggplot(data_acces_rce %>%
+#         .[, .N, by = c('g','year')])+
+#  geom_line(aes(x=year,y=N,color= as.factor(g)))
+#
+#ggplot(data_acces_rce %>%
+#         .[, .N, by = c('g','first_y_lab')])+
+#  geom_point(aes(x=first_y_lab,y=N,color= as.factor(g), group = as.factor(g)))
+#
+#ggplot(data_acces_rce %>%
+#         .[, lapply(.SD, mean, na.rm= T), by = c('g','year'), .SDcols = cols_to_wins])+
+#  geom_line(aes(x=year,y=citations_raw,color= as.factor(g)))
+#
+#feols_acces_rce <- didImputation(y0 = citations_raw ~ 0 | inst_id + t + cnrs_t+pub_2002_t +first_y_lab_t+type_t#+main_topic_t #+city_t
+#                                 ,cohort = "g",
+#                                 data = data_acces_rce %>% 
+#                                   .[inst_id != 'I4210159570'] %>%
+#                                   .[, ':='(log_citations = log(citations_raw),
+#                                                                    cnrs_t = paste0(cnrs,'_',t),
+#                                                                    type_t = paste0(type,'_',t),
+#                                                                    city_t = paste0(city,'_',t),
+#                                                                    main_topic_t = paste0(main_topic,'_',t),
+#                                                                    universite_t= paste0(main_topic, '_', t),
+#                                                                    first_y_lab_t= paste0(main_topic, '_', t),
+#                                                                    pub_2002_t = paste0(pub_2002, '_', t)
+#                                                                    )])
+#
+#plot(feols_acces_rce)
 
