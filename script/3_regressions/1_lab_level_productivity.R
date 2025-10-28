@@ -31,8 +31,18 @@ wins_vars <- function(x, pct_level = 0.01){
 
 inputpath <- "E:\\panel_fr_res\\inst_pub_y.parquet"
 
-ds <- open_dataset(inputpath)
-ds <- as.data.table(ds)
+ds <- open_dataset(inputpath) 
+ds <- as.data.table(ds) %>%
+  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
+  .[, ":="(first_y_lab = min(year, na.rm = T),
+           n_obs = n_distinct(year), 
+           min_n_au = min(n_au, na.rm = TRUE) ), by = c('merged_inst_id','field')] %>%
+  .[,":="(#idex = ifelse(is.na(idex), 'no_idex', idex),
+    acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
+    date_first_idex  = ifelse(is.na(date_first_idex ), "0", date_first_idex),
+    fusion_date = ifelse(is.na(fusion_date), "0", fusion_date))]%>%
+  .[, t := year-2007] 
+
 gc()
 
 cols_to_wins <- c("publications_raw","citations_raw","nr_source_btm_50pct_raw",
@@ -41,25 +51,26 @@ cols_to_wins <- c("publications_raw","citations_raw","nr_source_btm_50pct_raw",
 
 ds_clean <- ds %>%
   #.[is.na(fusion_date) | fusion_date >=2017] %>%
-  .[,":="(idex = ifelse(is.na(idex), 'no_idex', idex),
-         acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
-         date_first_idex  = ifelse(is.na(date_first_idex ), "0", date_first_idex),
-         fusion_date = ifelse(is.na(fusion_date), "0", fusion_date),
-         merged_inst_id = ifelse(is.na(merged_inst_id), inst_id, merged_inst_id))]%>%
-  .[, t := year-2007] %>%
-  .[,':='(first_y_lab = min(year, na.rm = T),
-          pub_2002 = max(as.numeric(year ==2002)*publications_raw, na.rm=T),
-          cit_2002 = max(as.numeric(year ==2002)*citations_raw, na.rm=T)
-  ), by = 'inst_id' ]%>%
+
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
   .[year >=2003  & year < 2020& !is.na(field)] %>%
   .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
   .[str_count(field, ',')<2] %>%
-  .[, n_obs := n_distinct(year), by = c('merged_inst_id','field')] %>%
-  .[n_obs == max(n_obs)]
+  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
+  .[first_y_lab <= 2003 ] %>%
+  .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
+           avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
+  .[acces_rce != "2015" & date_first_idex != "2014"]%>%
+  .[, ":="(n_au_2003 = max(as.numeric(year == 2003)*n_au ),
+           avg_publications_2003 = max(as.numeric(year == 2003)*avg_publications ),
+           avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations )
+           ), by = c('merged_inst_id','field')]%>%
+  .[n_au_2003 >= 1]
+
 
 summary(ds_clean$n_obs)
 summary(ds_clean$n_au)
+summary(ds$n_au)
 
 gc()
 nrow(unique(ds_clean[, list(merged_inst_id, field)]))
@@ -67,7 +78,8 @@ table(unique(ds_clean[, list(merged_inst_id, field, acces_rce)])$acces_rce)
 table(unique(ds_clean[, list(merged_inst_id, field, date_first_idex)])$date_first_idex)
 table(unique(ds_clean[, list(merged_inst_id, field, fusion_date)])$fusion_date)
 
-test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date)])[fusion_date=="2009"]
+test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date, n_au_2003, avg_publications_2003,min_n_au)])[min_n_au <5]
+test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date, year, publications_raw, n_au_2003, avg_publications_2003)])[merged_inst_id == "I68947357" & field =="24"]
 
 list_g = list( "acces_rce" = sort(unique(ds_clean[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(ds_clean[date_first_idex !=0]$date_first_idex))
@@ -99,6 +111,8 @@ fe_large = paste0(  ' |merged_inst_id^field + '
                     ,'+ cnrs^year'
                     ,'+ field^year'
                     ,'+ city^year'
+                    ,'+ n_au_2003^year'
+                    ,'+ avg_publications_2003^year'
 
 )
 gc()
@@ -129,7 +143,8 @@ dict_vars <- c('acces_rce'= 'University autonomy',
                'ecole'='Grande Ecole status',
                'main_topic'='Main field',
                "|merged_inst_id"= 'Institution',
-               " |merged_inst_id"= 'Institution'
+               " |merged_inst_id"= 'Institution',
+                 "n_au_2003" = 'Number of authors in 2003'
 )
 outcomes <- c('n_au',
               "publications_raw","citations_raw","nr_source_top_5pct_raw",
@@ -137,11 +152,7 @@ outcomes <- c('n_au',
               'avg_citations')
 
 
-ds_clean <- ds_clean %>%
-  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
-  .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
-           avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
-  .[merged_inst_id != "I90183372"]
+gc()
 
 for(var in outcomes){
   
@@ -292,6 +303,19 @@ make_stargazer_like_table_dt(unique(agg_stag%>%
                              drop_unlisted_vars = TRUE,
                              save_path = 'E:\\panel_fr_res\\productivity_results\\labs\\agg_att_lab_productivity_table.tex'
                              )
+
+make_stargazer_like_table_dt(unique(agg_stag%>%
+                                      .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
+                             var_map = dict_vars, 
+                             treat_map = dict_vars, 
+                             var_order = c('n_au','avg_publications','avg_citations'), 
+                             pre_mean = pre_mean,
+                             n_obs = n_obs,
+                             r_2 = r_2,
+                             drop_unlisted_vars = TRUE,
+                             save_path = 'E:\\panel_fr_res\\productivity_results\\labs\\agg_att_lab_productivity_table_short.tex'
+)
+
 #data_acces_rce <- ds_clean %>% .[group %in% c(0,1)] %>%
 #  .[, g := fifelse(acces_rce ==0, Inf, as.numeric(acces_rce) - 2008)] %>%
 #  .[year %in% 1997:2020 ] %>%

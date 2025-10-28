@@ -94,7 +94,7 @@ p <-ggplot(ds%>%
   labs(title = '')+xlab('Year')+ylab('')
 p
 
-save_plot("D:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
 
 
 p <-ggplot(ds%>%

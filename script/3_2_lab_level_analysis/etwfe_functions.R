@@ -2,12 +2,13 @@ agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[, d := str_extract(var, '(?<=i_|j_)[a-z_]*(?=_g)')] %>%
-    .[, type := case_when(str_detect(var, '_i_') ~ 'delta',
-                          str_detect(var, 'j')~'gamma',
+   # .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[ars]_)')]%>%
+    .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[rs]_)')]%>%
+    .[, type := case_when(str_detect(var, '_s_g') ~ 'delta',
+                          str_detect(var, '_r_g')~'gamma',
                           .default = '')] %>%
     .[, g := str_extract(var, '(?<=g)[0-9]{1,4}')] %>%
-    .[, year := str_extract(var, '(?<=y)[0-9]{4}')] %>%
+    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)] %>%
     .[, treat := ifelse(type!='',
                         paste0(type, '_', d), d)]
@@ -25,13 +26,13 @@ agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
     if(str_detect(trt, '_a_')){
       w <- data %>%
-        .[inst_id_sender == 'abroad' | inst_id_receiver == 'abroad'] %>%
+        .[merged_inst_id_s == 'abroad' | merged_inst_id_r == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[, w := w/sum(w)] %>% .[,year := as.character(year)]
     }
     else{
       w <- data %>%
-        .[inst_id_sender != 'abroad' & inst_id_receiver != 'abroad'] %>%
+        .[merged_inst_id_s != 'abroad' & merged_inst_id_r != 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[, w := w/sum(w)] %>% .[,year := as.character(year)]
     }
@@ -60,16 +61,20 @@ agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
   return(etwfe_agg)
 }
 
-agg_etwfe_het <- function(stag_model, by = 't'){
+agg_etwfe_het <- function(stag_model, data, by = 't'){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[, d := str_extract(var, '(?<=i_|j_)[a-z_]*(?=_g)')] %>%
-    .[, type := ifelse(str_detect(var, '_i_'), 'delta','gamma' )] %>%
-    .[, g := str_extract(var, '(?<=g)[0-9]{4}')] %>%
-    .[, year := str_extract(var, '(?<=y)[0-9]{4}')] %>%
+    # .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[ars]_)')]%>%
+    .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[rs]_)')]%>%
+    .[, type := case_when(str_detect(var, '_s_g') ~ 'delta',
+                          str_detect(var, '_r_g')~'gamma',
+                          .default = '')] %>%
+    .[, g := str_extract(var, '(?<=g)[0-9]{1,4}')] %>%
+    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)] %>%
-    .[, treat := paste0(type, '_', d)]
+    .[, treat := ifelse(type!='',
+                        paste0(type, '_', d), d)]
   #coefs$treat <- paste0(coefs$treat, '_', by, coefs[[by]])
   vcov_st_m <- vcov(stag_model)
   all_treatments = unique(coefs$treat)
@@ -85,13 +90,13 @@ agg_etwfe_het <- function(stag_model, by = 't'){
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
     if(str_detect(trt, '_a_')){
       w <- data %>%
-        .[inst_id_sender == 'abroad' | inst_id_receiver == 'abroad'] %>%
+        .[merged_inst_id_s == 'abroad' | merged_inst_id_r == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)]
     }
     else{
       w <- data %>%
-        .[inst_id_sender != 'abroad' & inst_id_receiver != 'abroad'] %>%
+        .[merged_inst_id_s != 'abroad' & merged_inst_id_r != 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)] 
     }
