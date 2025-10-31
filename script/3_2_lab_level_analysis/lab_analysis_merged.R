@@ -115,14 +115,14 @@ save_plot("E:\\panel_fr_res\\desc_stats\\avg_flows.png", p)
 
 
 ds_clean <- ds %>%
-  .[, fusion_date_r := fifelse(fusion_date_r == "2023", "0", fusion_date_r)]%>%
-  .[, fusion_date_s := fifelse(fusion_date_s == "2023", "0", fusion_date_s)] %>%
-  .[, ':='(fusion_date_s = fifelse(is.na(fusion_date_s), "0", fusion_date_s),
-           fusion_date_r = fifelse(is.na(fusion_date_r), "0", fusion_date_r),
-           date_first_idex_s = fifelse(is.na(date_first_idex_s), "0", date_first_idex_s),
-           date_first_idex_r = fifelse(is.na(date_first_idex_r), "0", date_first_idex_r),
-           acces_rce_s = fifelse(is.na(acces_rce_s), '0', acces_rce_s),
-           acces_rce_r = fifelse(is.na(acces_rce_r), '0', acces_rce_r),
+  .[, fusion_date_r := fifelse(fusion_date_r == "2023", "0", as.character(fusion_date_r) )]%>%
+  .[, fusion_date_s := fifelse(fusion_date_s == "2023", "0", as.character(fusion_date_s) )] %>%
+  .[, ':='(fusion_date_s = fifelse(is.na(fusion_date_s), "0", as.character(fusion_date_s) ),
+           fusion_date_r = fifelse(is.na(fusion_date_r), "0", as.character(fusion_date_r) ),
+           date_first_idex_s = fifelse(is.na(date_first_idex_s), "0", as.character(date_first_idex_s) ),
+           date_first_idex_r = fifelse(is.na(date_first_idex_r), "0", as.character(date_first_idex_r) ),
+           acces_rce_s = fifelse(is.na(acces_rce_s), '0', as.character(acces_rce_s) ),
+           acces_rce_r = fifelse(is.na(acces_rce_r), '0', as.character(acces_rce_r) ),
            city_r = fifelse(merged_inst_id_r == 'abroad','abroad', city_r),
            city_s = fifelse(merged_inst_id_s == 'abroad','abroad', city_s),
            main_topic_r = fifelse(merged_inst_id_r == 'abroad','abroad', main_topic_r),

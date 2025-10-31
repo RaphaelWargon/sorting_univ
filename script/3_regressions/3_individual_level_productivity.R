@@ -21,7 +21,7 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
-sample_df_peers <- fread("E:\\panel_fr_res\\sample_df_reg.csv") 
+sample_df_peers <- fread("E:\\panel_fr_res\\sample_df.csv") 
 gc()
 
 length(unique(sample_df_peers$author_id))
@@ -32,9 +32,9 @@ length(unique(sample_df_peers$inst_id_field))
 
 ####### Prepare dataset for staggered design regression
 
-table(unique(sample_df_peers[, list(inst_id_field, acces_rce,date_first_idex,fusion_date)])$acces_rce)
-table(unique(sample_df_peers[, list(inst_id_field, acces_rce,date_first_idex,fusion_date)])$date_first_idex)
-table(unique(sample_df_peers[, list(inst_id_field, acces_rce,date_first_idex,fusion_date)])$fusion_date)
+table(unique(sample_df_peers[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$acces_rce)
+table(unique(sample_df_peers[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$date_first_idex)
+table(unique(sample_df_peers[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$fusion_date)
 
 
 sample_df_reg <- sample_df_peers %>%
@@ -42,17 +42,20 @@ sample_df_reg <- sample_df_peers %>%
     & !(date_first_idex %in% c(2014))] %>%
   .[, log_publications := log(publications)] %>%
   .[, n_lt := n_distinct(author_id), by = c('inst_id_field','year')] %>%
-  .[, fused_inst_id := fifelse(is.na(fused_inst_id), inst_id, fused_inst_id)] %>%
-  .[, fused_inst_id_field := paste0(fused_inst_id, '_', field)]
-
+  .[, merged_inst_id := fifelse(is.na(merged_inst_id), inst_id, merged_inst_id)] %>%
+  .[, merged_inst_id_field := paste0(merged_inst_id, '_', field)] %>%
+  .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
+  .[ n_obs_au >= 10] %>%
+  .[ year < 2020]
+rm(sample_df_peers)
 list_g = list( "acces_rce" = sort(unique(sample_df_reg[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(sample_df_reg[date_first_idex !=0]$date_first_idex))
                , "fusion_date" = sort(unique(sample_df_reg[fusion_date !=0]$fusion_date))
 )
 gc()
 
-fe_min = ' | fused_inst_id_field + author_id + year'
-fe_large = paste0(  ' | fused_inst_id_field + '
+fe_min = ' | merged_inst_id_field + author_id + year'
+fe_large = paste0(  ' | merged_inst_id_field + '
                     ,'year +author_id '
                     ,'+ type^year '
                     ,'+ gender^year'
@@ -60,8 +63,8 @@ fe_large = paste0(  ' | fused_inst_id_field + '
                     ,'+ ecole^year'
                     ,'+ cnrs^year'
                     ,'+ field^year'
-                    #,'+ entry_year_year '
-                    #,'+ city_year'
+                    ,'+ entry_year^year '
+                    ,'+ city^year'
                     
 )
 gc()
@@ -113,14 +116,15 @@ dict_vars <- c('acces_rce'= 'University autonomy',
                'public'='Public Status',
                'ecole'='Grande Ecole status',
                'main_topic'='Main field',
-               "|fused_inst_id"= 'Institution',
-               " |fused_inst_id"= 'Institution',
-               "|fused_inst_id_field"= 'Institution $\\times$ field',
-               " |fused_inst_id"= 'Institution $\\times$ field'
+               "|merged_inst_id"= 'Institution',
+               " |merged_inst_id"= 'Institution',
+               "|merged_inst_id_field"= 'Institution $\\times$ field',
+               " |merged_inst_id"= 'Institution $\\times$ field'
 )
 gc()
 
-for(var in c('publications','citations','publications_raw', 'citations_raw',
+for(var in c('publications'
+             ,'citations','publications_raw', 'citations_raw',
              'nr_source_top_5pct', 'nr_source_top_5pct_raw'
              )
     ){
@@ -283,10 +287,10 @@ make_stargazer_like_table_dt(agg_stag %>%
 
 # Exploratory -----------------------------------------------------------
 
-test <- unique(sample_df_reg %>% .[, list(fused_inst_id, inst_id,name, acces_rce, date_first_idex, fusion_date)] ) 
+test <- unique(sample_df_reg %>% .[, list(merged_inst_id, inst_id,name, acces_rce, date_first_idex, fusion_date)] ) 
 
 nrow(sample_df_peers %>% .[inst_id == "I68947357"])
-test2 <- as.data.table(open_dataset(inputpath) %>% select(fused_inst_id, inst_id,name, acces_rce, date_first_idex, fusion_date))
+test2 <- as.data.table(open_dataset(inputpath) %>% select(merged_inst_id, inst_id,name, acces_rce, date_first_idex, fusion_date))
 test2 <- unique(test2)
 
 # Heterogeneity -----------------------------------------------------------

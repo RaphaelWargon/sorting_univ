@@ -22,7 +22,7 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
-inputpath <- "E:\\panel_fr_res\\panel_smoothed.parquet"
+inputpath <- "E:\\panel_fr_res\\panel_smoothed_cor.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
@@ -48,16 +48,16 @@ ds <- open_dataset(inputpath) %>%
          avg_rank_source,nr_source_btm_50pct,
          nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
          period_inst, uni_pub, cnrs,type, acces_rce,
-         idex, first_y_inst_period, date_first_idex,
-         fused_inst_id, fusion_date,
-         main_topic, city, prive, public, ecole, 
+         first_y_inst_period, date_first_idex,
+         merged_inst_id, fusion_date,
+         city, prive, public, ecole, 
          n_inst_y, first_y_inst_period, 
          # n_phd_students, in_supervisor_inst, 
          # in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
   )
 ds <- as.data.table(ds)
-
 ds <- unique(ds)
+ds %>% .[, .N, by = c('author_id','merged_inst_id','year','city')]%>%.[, .N, by ='N']
 
 ggplot(ds %>%
          .[, .(N= n_distinct(author_id)), by = "entry_year"])+geom_col(aes(x= entry_year, y = N) )
@@ -78,7 +78,8 @@ sample_df <- ds %>%
   .[, ':='(n_inst_id_sample = n_distinct(inst_id)), by = 'author_id'] %>%
   .[, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
            n_authors_sample = n_distinct(author_id),
-           n_y_sample_inst = n_distinct(year)), by = c('inst_id','field')]%>%
+           n_y_sample_inst = n_distinct(year),
+           merged_inst_id = fifelse(is.na(merged_inst_id), inst_id, merged_inst_id)), by = c('inst_id','field')]%>%
   .[, n_y_in_sample_au := n_distinct(year), by = 'author_id']%>%
   .[ n_authors_w_several_inst > 0 # ensure that the author and firm are part of the connected set
      & n_y_in_sample_au >=2 & n_authors_sample >1 & n_y_sample_inst>1] %>% #remove labs that are too poorly measured
@@ -90,7 +91,7 @@ sample_df <- ds %>%
   .[,max_field_value := max(field_value), by = 'inst_id'] %>%
   .[,field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(field), max_field, field)]%>%
   .[, field := field_recoded]%>%
-  .[,inst_id_field := paste0(inst_id, field)] %>%
+  .[,inst_id_field := paste0(merged_inst_id, field)] %>%
   
   ### 
   .[, log_citations:=log(citations)] %>%
@@ -112,14 +113,15 @@ sample_df <- sample_df %>%
 
 gc()
 
-length(unique(sample_df$author_id)) #290305
-length(unique(sample_df$inst_id_field)) #2545
-length(unique(sample_df$inst_id)) #1739
+length(unique(sample_df$author_id)) #292126
+length(unique(sample_df$inst_id_field)) #2030
+length(unique(sample_df$inst_id)) #1903
+length(unique(sample_df$merged_inst_id)) #1287
 
 ggplot(sample_df %>% 
          .[, .(n =n_distinct(year)), by ='inst_id'])+geom_histogram(aes(x= n) )
 
-
+fwrite(sample_df, "E:\\panel_fr_res\\sample_df.csv")
 # desc stats --------------------------------------------------------------
 
 
