@@ -30,7 +30,7 @@ wins_vars <- function(x, pct_level = 0.01){
 
 
 inputpath <- "E:\\panel_fr_res\\inst_pub_y.parquet"
-
+source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
 ds <- open_dataset(inputpath) 
 ds <- as.data.table(ds) %>%
   .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
@@ -55,17 +55,17 @@ ds_clean <- ds %>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
   .[year >=2003  & year < 2020& !is.na(field)] %>%
   .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
-  .[str_count(field, ',')<2] %>%
+  .[str_count(field, ',')<2 & !is.na(field)] %>%
   .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
   .[first_y_lab <= 2003 ] %>%
   .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
            avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
-  .[acces_rce != "2015" & date_first_idex != "2014"]%>%
+  .[acces_rce != "2015" & acces_rce != "2014" & date_first_idex != "2014"]%>%
   .[, ":="(n_au_2003 = max(as.numeric(year == 2003)*n_au ),
            avg_publications_2003 = max(as.numeric(year == 2003)*avg_publications ),
            avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations )
            ), by = c('merged_inst_id','field')]%>%
-  .[n_au_2003 >= 1]
+  .[n_au_2003 >= 1 & n_obs >= 20]
 
 
 summary(ds_clean$n_obs)
@@ -73,10 +73,15 @@ summary(ds_clean$n_au)
 summary(ds$n_au)
 
 gc()
-nrow(unique(ds_clean[, list(merged_inst_id, field)]))
+nrow(unique(ds_clean[, list(merged_inst_id, field)])) #10812
 table(unique(ds_clean[, list(merged_inst_id, field, acces_rce)])$acces_rce)
 table(unique(ds_clean[, list(merged_inst_id, field, date_first_idex)])$date_first_idex)
 table(unique(ds_clean[, list(merged_inst_id, field, fusion_date)])$fusion_date)
+
+table(unique(ds_clean[, list(merged_inst_id, acces_rce)])$acces_rce)
+table(unique(ds_clean[, list(merged_inst_id, date_first_idex)])$date_first_idex)
+table(unique(ds_clean[, list(merged_inst_id, fusion_date)])$fusion_date)
+
 
 test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date, n_au_2003, avg_publications_2003,min_n_au)])[min_n_au <5]
 test<-unique(ds_clean[, list(merged_inst_id, field, fusion_date, year, publications_raw, n_au_2003, avg_publications_2003)])[merged_inst_id == "I68947357" & field =="24"]
@@ -151,8 +156,9 @@ outcomes <- c('n_au',
               'avg_publications',
               'avg_citations')
 
-
+#rm(ds)
 gc()
+
 
 for(var in outcomes){
   
@@ -173,14 +179,15 @@ list_es[[var]] <- list()
 start_time <- Sys.time()
 es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_min))
                   , data = ds_clean
-                  ,cluster = c('merged_inst_id')
+                  ,mem.clean = TRUE,lean = TRUE, fixef.tol = 1E-2,
+                  ,cluster = c('merged_inst_id', 'field')
 ) 
 time_taken <- Sys.time() - start_time
-time_taken
+print(time_taken)
 
 list_es[[var]][['no_ctrl']] <- es_stag
 
-agg_stag_no_ctrl <- agg_effects(es_stag, ds_clean)%>%
+agg_stag_no_ctrl <- agg_effects(es_stag, ds_clean, t_limit =7)%>%
   .[, var := var] %>% .[, ctrl := 'None']
 
 agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
@@ -192,7 +199,7 @@ agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_no_ctrl)
 for(treat in unique(agg_stag_by_t_no_ctrl$treatment)){
   p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
     geom_point(aes(x= t, y = est))+
-    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
     geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
     theme_bw()
@@ -211,7 +218,7 @@ agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_no_ctrl)
 for(treat in unique(agg_stag_by_g_no_ctrl$treatment)){
   p <- ggplot(agg_stag_by_g_no_ctrl %>% .[treatment %in% c(treat) ])+
     geom_point(aes(x= g, y = est))+
-    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
     geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
     theme_bw()
@@ -226,16 +233,17 @@ gc()
 
 start_time <- Sys.time()
 es_stag_ctrl <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_large))
-                   , data = ds_clean
-                   ,cluster = c('merged_inst_id')
+                   , data = ds_clean,
+                   ,mem.clean = TRUE,lean = TRUE, fixef.tol = 1E-2,
+                   ,cluster = c('merged_inst_id', 'field')
 ) 
 time_taken <- Sys.time() - start_time
-time_taken
+print(time_taken)
 
 list_es[[var]][['ctrl']] <- es_stag
 
 
-agg_stag_ctrl <- agg_effects(es_stag_ctrl, ds_clean)%>%
+agg_stag_ctrl <- agg_effects(es_stag_ctrl, ds_clean, t_limit =7)%>%
   .[, var := var] %>% .[, ctrl := fe_large]
 
 agg_stag <- rbind(agg_stag, agg_stag_ctrl)
@@ -246,7 +254,7 @@ agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_ctrl)
 for(treat in unique(agg_stag_by_t_ctrl$treatment)){
   p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
     geom_point(aes(x= t, y = est))+
-    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
     geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
     theme_bw()
@@ -264,7 +272,7 @@ agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_ctrl)
 for(treat in unique(agg_stag_by_g_ctrl$treatment)){
   p <- ggplot(agg_stag_by_g_ctrl %>% .[treatment %in% c(treat) ])+
     geom_point(aes(x= g, y = est))+
-    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std))+
+    geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
     geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
     theme_bw()

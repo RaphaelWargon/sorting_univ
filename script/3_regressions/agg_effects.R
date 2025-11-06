@@ -1,11 +1,13 @@
 agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
-  coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
+  coefs <- as.data.table(es_stag$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-    .[, g := str_extract(var, '(?<=_)[0-9]+$')] %>%
-    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
+   # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+    .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
+     .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
+   # .[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)]   
   if(t_limit !=0){
     coefs <- coefs[abs(t)<= t_limit]
@@ -81,12 +83,17 @@ agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+    #.[ str_detect(var, 'year[0-9]{4}')]%>%
+    #.[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+    #.[, g := str_extract(var, paste0('(?<=' , d, ')[0-9]{4}')) ] %>%
+    #.[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
+    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-    .[, g := str_extract(var, '(?<=_)[0-9]+$')] %>%
+    .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
     .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
-    .[, t := as.numeric(year)-as.numeric(g)]   
 
+    .[, t := as.numeric(year)-as.numeric(g)]   
+  
   all_treatments = unique(coefs$d)
   etwfe_agg <- data.table(treat = '', est = 0, std = 0, t = 0, pvalue = 0, type = '') %>% .[treat != '']
   for(trt in all_treatments){
@@ -157,12 +164,16 @@ agg_effect_het <- function(stag_model, data, by = 't'){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+    #.[ str_detect(var, 'year[0-9]{4}')]%>%
+    #.[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+    #.[, g := str_extract(var, paste0('(?<=' , d, ')[0-9]{4}')) ] %>%
+    #.[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
+    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-    .[, g := str_extract(var, '(?<=_)[0-9]+$')] %>%
+    .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
+    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, quant := str_extract(var, '(?<=quantile_au_fe)[0-9]')] %>%
     .[, quant := fifelse(is.na(quant), 'global', quant)] %>%
-    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)] 
   #coefs$treat <- paste0(coefs$treat, '_', by, coefs[[by]])
   vcov_st_m <- vcov(stag_model)
