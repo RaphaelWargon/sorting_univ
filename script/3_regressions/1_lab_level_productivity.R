@@ -33,7 +33,6 @@ inputpath <- "E:\\panel_fr_res\\inst_pub_y.parquet"
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
 ds <- open_dataset(inputpath) 
 ds <- as.data.table(ds) %>%
-  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
   .[, ":="(first_y_lab = min(year, na.rm = T),
            n_obs = n_distinct(year), 
            min_n_au = min(n_au, na.rm = TRUE) ), by = c('merged_inst_id','field')] %>%
@@ -57,15 +56,17 @@ ds_clean <- ds %>%
   .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
   .[str_count(field, ',')<2 & !is.na(field)] %>%
   .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
-  .[first_y_lab <= 2003 ] %>%
+ # .[first_y_lab <= 2003 ] %>%
   .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
            avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
   .[acces_rce != "2015" & acces_rce != "2014" & date_first_idex != "2014"]%>%
   .[, ":="(n_au_2003 = max(as.numeric(year == 2003)*n_au ),
            avg_publications_2003 = max(as.numeric(year == 2003)*avg_publications ),
-           avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations )
+           avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations ),
+           last_year_lab = max(year)
            ), by = c('merged_inst_id','field')]%>%
-  .[n_au_2003 >= 1 & n_obs >= 20]
+  .[first_y_lab <= 2003
+    ]
 
 
 summary(ds_clean$n_obs)

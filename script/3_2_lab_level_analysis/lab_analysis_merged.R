@@ -18,6 +18,7 @@ wins_vars <- function(x, pct_level = 0.025){
 
 # I) Loading data ------------------------------------------------------------
 
+source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/etwfe_functions.R'))
 
 
 inputpath <- "E:\\panel_fr_res\\inst_level_flows.parquet"
@@ -225,15 +226,18 @@ dict_vars <- c("movers_w"                  =     'Total flows',
                'gamma_fusion_date_a' = "Merged establishment, arrivals from abroad"
 )
                    
+list_es <- list()
 
-
-var <- "movers_w"
+outcomes <- c("movers_w", "movers_foreign_entrant_w", "movers_junior_w", 'movers_medium_w', 'medium_senior_w')
+for(var in outcomes){
+list_es[[var]] <- list()
 var_path = paste0("E:\\panel_fr_res\\lab_results\\full_no_fe\\", var)
 if (!file.exists(var_path)){
   dir.create(var_path, recursive = TRUE)
 }
 
 fe_min <- '| year + merged_inst_id_r  +merged_inst_id_s + unit'
+fe_large <- paste0(fe_min, '+ type_s^year + type_r^year + public_s^year + public_r^year + city_s^year + city_r^year')
 start_time <- Sys.time()
 
 es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_min))
@@ -244,6 +248,26 @@ es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collap
 
 time_taken <- Sys.time() - start_time
 time_taken
+
+list_es[[var]][['no_ctrl']] <- es_stag
+
+
+start_time <- Sys.time()
+
+es_stag_ctrl <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_large))
+                        , data = ds_clean,
+                        mem.clean = TRUE, lean = TRUE, fixef.tol = 1E-2
+                        ,cluster = c('unit')
+) 
+
+time_taken <- Sys.time() - start_time
+time_taken
+
+list_es[[var]][['ctrl']] <- es_stag_ctrl
+
+
+}
+
 
 agg_stag <- agg_etwfe(es_stag, data = ds_clean)
 
@@ -262,7 +286,3 @@ for(treat in unique(agg_effect_by_t$treatment)){
   dev.off()
 }
 gc()
-
-
-
-

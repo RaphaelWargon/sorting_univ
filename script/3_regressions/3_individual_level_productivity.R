@@ -142,10 +142,9 @@ dict_vars <- c('acces_rce'= 'University autonomy',
 )
 gc()
 
-outcomes <- c('publications_raw',
-  'publications'
-  ,'citations', 'citations_raw',
-  'nr_source_top_5pct', 'nr_source_top_5pct_raw'
+outcomes <- c('publications_raw', 'publications',
+              'citations_raw','citations',
+              'nr_source_top_5pct_raw', 'nr_source_top_5pct'
 )
 for(var in outcomes){
   no_ctrl_path = "E:\\panel_fr_res\\productivity_results\\individual\\no_ctrl\\"
@@ -194,7 +193,7 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.
 
 for(var in outcomes){
   
-  agg_stag_no_ctrl <- agg_effects(list_es[[var]][['no_ctrl']], sample_df_reg)%>%
+  agg_stag_no_ctrl <- agg_effects(list_es[[var]][['no_ctrl']], sample_df_reg, t_limit = 7)%>%
     .[, var := var] %>% .[, ctrl := 'None']
   agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
   agg_stag_by_t_no_ctrl <- agg_effect_het(list_es[[var]][['no_ctrl']], sample_df_reg, by  ='t')%>%
@@ -277,7 +276,7 @@ for(var in outcomes){
 
 pre_mean <- list() 
 for(var in names(list_es)){
-  pre_mean[[var]] <- round(mean((sample_df_reg[year < 2009])[[var]], na.rm =T),2)
+  pre_mean[[var]] <- round(mean((sample_df_reg[as.numeric(as.character(year)) < 2009])[[var]], na.rm =T),2)
 }
 n_obs <- list()
 r_2 <- list()
@@ -336,7 +335,7 @@ print(p)
 }}
 
 saveRDS(list_es, file = "E:\\panel_fr_res\\productivity_results\\individual\\all_regressions.rds")
-
+list_es <- readRDS("E:\\panel_fr_res\\productivity_results\\individual\\all_regressions.rds")
 # Heterogeneity -----------------------------------------------------------
 
 

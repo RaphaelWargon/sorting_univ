@@ -1,5 +1,5 @@
 agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
-  coefs <- as.data.table(es_stag$coefficients, keep.rownames = TRUE)
+  coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
     .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
