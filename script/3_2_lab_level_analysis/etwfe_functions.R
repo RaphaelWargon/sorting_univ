@@ -24,7 +24,7 @@ agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
     tryCatch({
     to_sum <- coefs %>% .[treat == trt & g!="0" & t>0] 
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
-    if(str_detect(trt, '_a_')){
+    if(str_detect(trt, '_a')){
       w <- data %>%
         .[merged_inst_id_s == 'abroad' | merged_inst_id_r == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
@@ -88,7 +88,7 @@ agg_etwfe_het <- function(stag_model, data, by = 't'){
     start_time_trt = Sys.time()
     to_sum <- coefs %>% .[treat == trt] 
     var = paste0(str_remove(to_sum$d[[1]], '^a_'), ifelse(str_detect(trt, 'delta'), '_s','_r'))
-    if(str_detect(trt, '_a_')){
+    if(str_detect(trt, '_a')){
       w <- data %>%
         .[merged_inst_id_s == 'abroad' | merged_inst_id_r == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
@@ -105,7 +105,8 @@ agg_etwfe_het <- function(stag_model, data, by = 't'){
                       .[,year:=as.character(year)] %>%
                       .[, g:=as.character(g)],w %>%
                       .[, g :=as.character(g)], by = c('g','year') )
-    for(val in unique(to_sum[[by]])){
+    all_values=  unique(to_sum[[by]])
+    for(val in all_values){
       print(val)
       to_sum_by = to_sum[to_sum[[by]] == val] %>%
         .[, w:= w/sum(w)]
@@ -116,7 +117,19 @@ agg_etwfe_het <- function(stag_model, data, by = 't'){
       pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
       etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = aggte, std = aggte_se, t_value = aggte_t, p_value= pval, by = val) )}
   time_trt = Sys.time()-start_time_trt
+  if(by =='t'){
+    ref = ''
+    for( el in min(all_values):max(all_values)){
+      if(!el %in% all_values){
+        ref = el
+      }
     }
+    print(ref)
+    if(ref != ''){
+      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = 0, std = NA, t_value = 0, p_value= 0, by = ref) )}
+  }
+    }
+  
   colnames(etwfe_by) <- c('treatment','est','std', 't_value','p_value', by)
   return(etwfe_by)
 }

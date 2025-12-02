@@ -18,6 +18,7 @@ wins_vars <- function(x, pct_level = 0.025){
 
 # I) Loading data ------------------------------------------------------------
 
+source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/etwfe_functions.R'))
 
 
 inputpath <- "E:\\panel_fr_res\\inst_level_flows.parquet"
@@ -186,19 +187,87 @@ gc()
 
 rm(ds)
 gc()
+
+ds_clean <- ds_clean %>%
+  .[, ':='(
+    acces_rce_a_s = fifelse(acces_rce_s != '0' & merged_inst_id_r == 'abroad', acces_rce_s, "0"),
+    acces_rce_a_r = fifelse(acces_rce_r != '0' & merged_inst_id_s == 'abroad', acces_rce_r, "0"),
+
+    date_first_idex_a_s = fifelse(date_first_idex_s != '0' & merged_inst_id_r == 'abroad', date_first_idex_s, "0"),
+    date_first_idex_a_r = fifelse(date_first_idex_r != '0' & merged_inst_id_s == 'abroad', date_first_idex_r, "0"),
+    
+    fusion_date_a_s = fifelse(fusion_date_s != '0' & merged_inst_id_r == 'abroad', fusion_date_s, "0"),
+    fusion_date_a_r = fifelse(fusion_date_r != '0' & merged_inst_id_s == 'abroad', fusion_date_r, "0")
+      )]
 # Regression --------------------------------------------------------------
-var <- "movers_w"
+
+
+
+dict_vars <- c("movers_w"                  =     'Total flows',
+               "movers_w_junior"           =     'Junior researcher flows',
+               "movers_w_senior"           =     'Senior researcher flows',
+               "movers_w_medium"           =     'Medium researcher flows',
+               "movers_w_own_entrant_r"    =     'Returning to entry institution',
+               "movers_w_own_entrant_s"    =     'Exiting from entry institution',
+               "movers_w_foreign_entrant"  =     'Foreign entrant flows', 
+               'delta_acces_rce' = "University autonomy, departures",
+               'delta_acces_rce_a' = "University autonomy, departures abroad",
+               'gamma_acces_rce' = "University autonomy, arrivals",
+               'gamma_acces_rce_a' = "University autonomy, arrivals from abroad",
+               
+               'delta_date_first_idex' =   "Received an IDEX, departures",
+               'delta_date_first_idex_a' = "Received an IDEX, departures abroad",
+               'gamma_date_first_idex' =   "Received an IDEX, arrivals",
+               'gamma_date_first_idex_a' = "Received an IDEX, arrivals from abroad",
+               
+               'delta_fusion_date' =   "Merged establishment, departures",
+               'delta_fusion_date_a' = "Merged establishment, departures abroad",
+               'gamma_fusion_date' =   "Merged establishment, arrivals",
+               'gamma_fusion_date_a' = "Merged establishment, arrivals from abroad"
+)
+                   
+list_es <- list()
+
+outcomes <- c("movers_w", "movers_foreign_entrant_w", "movers_junior_w", 'movers_medium_w', 'medium_senior_w')
+for(var in outcomes){
+list_es[[var]] <- list()
+var_path = paste0("E:\\panel_fr_res\\lab_results\\full_no_fe\\", var)
+if (!file.exists(var_path)){
+  dir.create(var_path, recursive = TRUE)
+}
 
 fe_min <- '| year + merged_inst_id_r  +merged_inst_id_s + unit'
+fe_large <- paste0(fe_min, '+ type_s^year + type_r^year + public_s^year + public_r^year + city_s^year + city_r^year')
 start_time <- Sys.time()
 
 es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_min))
-                   , data = ds_clean
+                   , data = ds_clean,
+                   mem.clean = TRUE, lean = TRUE, fixef.tol = 1E-2
                  ,cluster = c('unit')
 ) 
 
 time_taken <- Sys.time() - start_time
 time_taken
+
+list_es[[var]][['no_ctrl']] <- es_stag
+
+
+start_time <- Sys.time()
+
+es_stag_ctrl <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_large))
+                        , data = ds_clean,
+                        mem.clean = TRUE, lean = TRUE, fixef.tol = 1E-2
+                        ,cluster = c('unit')
+) 
+
+time_taken <- Sys.time() - start_time
+time_taken
+
+list_es[[var]][['ctrl']] <- es_stag_ctrl
+
+
+}
+
 
 agg_stag <- agg_etwfe(es_stag, data = ds_clean)
 
@@ -207,13 +276,13 @@ gc()
 
 for(treat in unique(agg_effect_by_t$treatment)){
   p <- ggplot(agg_effect_by_t %>% .[treatment %in% c(treat) & t %in% -7:7])+
-    geom_point(aes(x= t, y = est, shape = treatment))+
-    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std, linetype = treatment))+
-    geom_vline(aes(xintercept = 0.5), color = 'red')+geom_hline(aes(yintercept = 0), linetype = "dashed")+
-    labs(title = paste0('Treatment: ', treat))+
+    geom_point(aes(x= t, y = est))+
+    geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
+    geom_vline(aes(xintercept = -1), linetype = 'dashed')+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
     theme_bw()
+  pdf(paste0(var_path, '//', treat, '.pdf'))
   print(p)
+  dev.off()
 }
 gc()
-
-

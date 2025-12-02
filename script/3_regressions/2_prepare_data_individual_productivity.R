@@ -22,7 +22,7 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
-inputpath <- "E:\\panel_fr_res\\panel_smoothed_cor.parquet"
+inputpath <- "E:\\panel_fr_res\\panel_smoothed.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
@@ -37,26 +37,8 @@ ds <- open_dataset(inputpath) %>%
     #& entry_year <=2003
     & citations >0
     & !(is.na(field))&!is.na(city) & !is.na(cnrs) & !is.na(type) 
-  ) %>%
-  select(author_id, author_name, gender, year,
-         entry_year,
-         inst_id, name, type, field, subfield, domain, entry_country,
-         publications_raw,citations_raw,  
-         publications, citations,
-         avg_rank_source_raw,nr_source_btm_50pct_raw,
-         nr_source_mid_40pct_raw, nr_source_top_20pct_raw,nr_source_top_10pct_raw,nr_source_top_5pct_raw,
-         avg_rank_source,nr_source_btm_50pct,
-         nr_source_mid_40pct, nr_source_top_20pct,nr_source_top_10pct,nr_source_top_5pct,
-         period_inst, uni_pub, cnrs,type, acces_rce,
-         first_y_inst_period, date_first_idex,
-         merged_inst_id, fusion_date,
-         city, prive, public, ecole, 
-         n_inst_y, first_y_inst_period, 
-         # n_phd_students, in_supervisor_inst, 
-         # in_referee_inst,in_jury_inst, thesis_year #, inst_set_this_year
-  )
+  )%>% select(-inst_set_this_year)
 ds <- as.data.table(ds)
-ds <- unique(ds)
 ds %>% .[, .N, by = c('author_id','merged_inst_id','year','city')]%>%.[, .N, by ='N']
 
 ggplot(ds %>%
@@ -71,28 +53,28 @@ gc()
 
 ##
 #inst_to_exclude <- c('I4210159570')
-cols_to_wins <- colnames(ds)[4:19]
+cols_to_wins <- c("publications_raw","avg_rank_source_raw","nr_source_top_5pct_raw"  ,"nr_source_top_10pct_raw" ,"nr_source_mid_40pct_raw","nr_source_top_20pct_raw" ,"nr_source_btm_50pct_raw","citations_raw"
+                  ,"publications","avg_rank_source","nr_source_top_5pct"  ,"nr_source_top_10pct" ,"nr_source_mid_40pct","nr_source_top_20pct" ,"nr_source_btm_50pct","citations"
+                  )
+
 sample_df <- ds %>%
   
   #### Checking that there are enough observations for each individual or author :
-  .[, ':='(n_inst_id_sample = n_distinct(inst_id)), by = 'author_id'] %>%
+  .[, ':='(n_inst_id_sample = n_distinct(merged_inst_id)), by = 'author_id'] %>%
   .[, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
            n_authors_sample = n_distinct(author_id),
-           n_y_sample_inst = n_distinct(year),
-           merged_inst_id = fifelse(is.na(merged_inst_id), inst_id, merged_inst_id)), by = c('inst_id','field')]%>%
+           n_y_sample_inst = n_distinct(year)), by = c('merged_inst_id','field')]%>%
   .[, n_y_in_sample_au := n_distinct(year), by = 'author_id']%>%
   .[ n_authors_w_several_inst > 0 # ensure that the author and firm are part of the connected set
      & n_y_in_sample_au >=2 & n_authors_sample >1 & n_y_sample_inst>1] %>% #remove labs that are too poorly measured
   
-  ##### recode main field for wrong affiliation
-  .[,max_field := dplyr::first(ifelse(n_authors_sample == max(n_authors_sample* as.numeric(!is.na(field)) ) & !is.na(field), field, NA), na_rm = T),
-    by = "inst_id"] %>%
-  .[,field_value := n_authors_sample/n_distinct(author_id),by = 'inst_id']%>%
-  .[,max_field_value := max(field_value), by = 'inst_id'] %>%
-  .[,field_recoded := ifelse( ((field_value <0.1| n_authors_sample<=5) ) | is.na(field), max_field, field)]%>%
-  .[, field := field_recoded]%>%
-  .[,inst_id_field := paste0(merged_inst_id, field)] %>%
-  
+ # ##### recode main field for wrong affiliation
+ # .[,max_field := dplyr::first(ifelse(n_authors_sample == max(n_authors_sample* as.numeric(!is.na(field)) ) & !is.na(field), field, NA), na_rm = T),
+ #   by = "merged_inst_id"] %>%
+ # .[,field_value := n_authors_sample/n_distinct(author_id),by = 'merged_inst_id']%>%
+ # .[,max_field_value := max(field_value), by = 'merged_inst_id'] %>%
+ # .[,field_recoded := ifelse( ((field_value <0.02| n_authors_sample<=10) ) | is.na(field), max_field, field)]
+
   ### 
   .[, log_citations:=log(citations)] %>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins]%>%
@@ -104,28 +86,32 @@ sample_df <- ds %>%
 gc()
 
 sample_df <- sample_df %>% 
-  .[, inst_id_field_year := paste0(inst_id_field,'_',year)]%>%
   .[, ':='(n_obs_au = .N), by = "author_id"]%>%
-  .[n_obs_au >1] %>%
-  .[, ':='(n_au_inst_id_field_y = .N), by = c('inst_id_field_year')] %>%
-  .[, min_n_au_inst_id_field_y := min(n_au_inst_id_field_y), by = 'inst_id_field']%>%
-  .[ min_n_au_inst_id_field_y >1]
+  .[n_obs_au >1 & n_inst_y <=5] %>%
+  .[, ':='(n_au_inst_id_field_y = .N), by = c('merged_inst_id', 'field','year')] %>%
+  .[, min_n_au_inst_id_field_y := min(n_au_inst_id_field_y), by = c('merged_inst_id', "field")]%>%
+  .[ min_n_au_inst_id_field_y >1 & n_y_sample_inst >= 20] 
 
 gc()
 
-length(unique(sample_df$author_id)) #292126
-length(unique(sample_df$inst_id_field)) #2030
-length(unique(sample_df$inst_id)) #1903
-length(unique(sample_df$merged_inst_id)) #1287
+ggplot(unique(sample_df[, list(author_id, n_inst_y)]))+
+  geom_density(aes(x=n_inst_y))
+
+length(unique(sample_df$author_id)) #265916
+nrow(unique(sample_df[, list(merged_inst_id, field)])) #2868
+length(unique(sample_df$merged_inst_id)) #966
 
 ggplot(sample_df %>% 
-         .[, .(n =n_distinct(year)), by ='inst_id'])+geom_histogram(aes(x= n) )
+         .[, .(n =n_distinct(year)), by ='merged_inst_id'])+geom_histogram(aes(x= n) )
+
 
 fwrite(sample_df, "E:\\panel_fr_res\\sample_df.csv")
 # desc stats --------------------------------------------------------------
 
 
-to_plot <- sample_df[, .(citations = mean(citations, na.rm = T),
+to_plot <- sample_df %>%
+  .[, uni_pub := fifelse(acces_rce == '0', 0, 1) ] %>% 
+  .[, .(citations = mean(citations, na.rm = T),
                          citations_raw = mean(citations_raw, na.rm = T),
                          publications = mean(publications_raw, na.rm=T), 
                          avg_rank_source_raw = mean(avg_rank_source_raw*publications_raw, na.rm=T), 
