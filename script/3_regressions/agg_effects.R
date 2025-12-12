@@ -2,7 +2,7 @@ agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
-    .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
+    .[ str_detect(var, '(?<=[0-9]:)[a-z_]')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
    # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
     .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
@@ -75,7 +75,98 @@ agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
   return(etwfe_agg)
 }
 
-
+agg_effects_idex <- function(stag_model, data, R = 0, t_limit = 0){
+  apply_map <- function(x, m) {
+    if (is.null(m)) return(x)
+    if (is.list(m)) m <- unlist(m, use.names = TRUE)
+    if (is.null(names(m)) || any(is.na(names(m)))) stop("var_map/treat_map must be named.")
+    idx <- match(x, names(m)); out <- x; repl <- !is.na(idx); out[repl] <- unname(m[idx[repl]]); out
+  }
+  
+  coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
+  colnames(coefs) <-c("var",'est')
+  coefs <- coefs %>%
+    .[ str_detect(var, '(?<=[0-9]:)[a-z_]')]%>%
+    .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+    .[, d := fifelse(str_detect(var, 'idex|isite'),
+                     str_extract(var, '(?<=[0-9]:).*')
+                     ,d)]%>%
+    # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+    .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
+    .[, g :=  fifelse(str_detect(var, 'idex|isite'),
+                      fifelse(d %in% names(idex_dict_dates), apply_map(d, idex_dict_dates), NA)
+                      ,g)]%>%
+    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
+    # .[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
+    .[, t := as.numeric(year)-as.numeric(g)]   %>%
+    .[, g :=  fifelse(str_detect(var, 'idex|isite'),
+                      1
+                      ,0)]
+  if(t_limit !=0){
+    coefs <- coefs[abs(t)<= t_limit]
+  }
+  
+  all_treatments = unique(coefs$d)
+  etwfe_agg <- data.table(treat = '', est = 0, std = 0, t = 0, pvalue = 0, pvalue_pretrend = 0, type = '') %>% .[treat != '']
+  for(trt in all_treatments){
+    print(trt)
+    tryCatch({
+      
+      ##### SUNAB weights
+      to_sum <- coefs %>% .[d == trt & t>0] 
+      var = to_sum$d[[1]]
+      w <- data %>%
+        .[, .(w  = .N), by = c(var, "year") ] %>%
+        .[,year := as.character(year)]
+      colnames(w) <- c('g', 'year', 'w')
+      to_sum <- merge(to_sum %>%
+                        .[, ':='(g =as.character(g),
+                                 year = as.character(year))],
+                      w%>%
+                        .[, ':='(g =as.character(g),
+                                 year = as.character(year))], by = c('g','year') ) %>%
+        .[, w := w/sum(w)]
+      aggte = sum(to_sum$w * to_sum$est)
+      cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
+      aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
+      aggte_t <- (aggte-R)/aggte_se
+      pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
+      
+      
+      to_sum_pre <- coefs %>% .[d == trt & t<0] 
+      w <- data %>%
+        .[, .(w  = .N), by = c(var, "year") ] %>%
+        .[,year := as.character(year)]
+      colnames(w) <- c('g', 'year', 'w')
+      to_sum_pre <- merge(to_sum_pre %>%
+                            .[, ':='(g =as.character(g),
+                                     year = as.character(year))],
+                          w%>%
+                            .[, ':='(g =as.character(g),
+                                     year = as.character(year))], by = c('g','year') ) %>%
+        .[, w := w/sum(w)]
+      aggte_pre = sum(to_sum_pre$w * to_sum_pre$est)
+      cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
+      aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
+      aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
+      pval_pre = dt(aggte_t_pre, degrees_freedom(es_stag, type = 't'))
+      
+      etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
+                                              pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab') )
+      
+      
+      
+      
+    },
+    error = function(cond) {
+      message(conditionMessage(cond))
+      NA
+    }
+    )
+  }
+  
+  return(etwfe_agg)
+}
 
 
 
@@ -160,7 +251,7 @@ agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t
 
 
 
-agg_effect_het <- function(stag_model, data, by = 't'){
+agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
@@ -170,6 +261,9 @@ agg_effect_het <- function(stag_model, data, by = 't'){
     #.[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
     .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+    .[, d := fifelse(str_detect(var, 'idex|isite'),
+                     str_extract(var, '(?<=[0-9]:).*')
+                     ,d)]%>%
     .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
     .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, quant := str_extract(var, '(?<=quantile_au_fe)[0-9]')] %>%
@@ -180,10 +274,17 @@ agg_effect_het <- function(stag_model, data, by = 't'){
   all_treatments = unique(coefs$d)
   etwfe_by <- data.table(treat = '', est = 0, std = 0, t_value=0, p_value = 0, by = 0, n = 0) %>% .[treat != '']
   
+  if(t_limit !=0){
+    coefs <- coefs[, t := case_when(t > t_limit ~ t_limit +1,
+                                    t < -t_limit ~ -t_limit -1,
+                                    .default = t)]
+  }
+  
   if(by !='t'){
     coefs <- coefs[t >0]
   
   }
+
   for(trt in all_treatments){
     print(trt)
     start_time_trt = Sys.time()
@@ -200,7 +301,7 @@ agg_effect_het <- function(stag_model, data, by = 't'){
                       .[, g :=as.character(g)], by = c('g','year') )
     all_values=  unique(to_sum[[by]])
     for(val in unique(to_sum[[by]])){
-      print(val)
+      #print(val)
       to_sum_by = to_sum[to_sum[[by]] == val] 
       n_by = sum(to_sum_by$w)
       to_sum_by = to_sum_by %>%
@@ -220,9 +321,20 @@ agg_effect_het <- function(stag_model, data, by = 't'){
       }
       print(ref)
       if(ref != ''){
-      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = 0, std = NA, t_value = 0, p_value= 0, by = ref, n = n_by) )}
+      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = 0, std = NA, t_value = 0, p_value= 0, by = as.numeric(ref), n = n_by) )}
     }
   }
+  
+  if(t_limit !=0 & by == 't'){
+    #   print('correction')
+    etwfe_by <- etwfe_by %>%
+      .[, by := case_when(by > t_limit ~ paste0('>',t_limit),
+                         by < -t_limit ~ paste0('<-',t_limit),
+                         .default = as.character(by)) ]
+    etwfe_by$by = factor(etwfe_by$by, levels = c(paste0('<-',t_limit), as.character(-t_limit:t_limit),  paste0('>',t_limit)))
+  }
+  
+  
   colnames(etwfe_by) <- c('treatment','est','std', 't_value','p_value', by, 'n')
   return(etwfe_by)
 }
@@ -440,3 +552,55 @@ make_stargazer_like_table_dt <- function(dt,
   }
   tex
 }
+
+idex_dict_dates = c(
+  "idex_aix_marseille"= #https=//anr.fr/ProjetIA-11-IDEX-0001
+    2012,#février
+  'idex_paris_saclay'=#https=//anr.fr/ProjetIA-11-IDEX-0003
+    2012, #février      
+  'idex_bordeaux' = #https=//anr.fr/ProjetIA-10-IDEX-0003
+    2011,    #novembre  
+  "idex_psl"= #https=//anr.fr/ProjetIA-10-IDEX-0001
+    2011,#novembre      
+  "idex_paris_cite"= #https=//anr.fr/ProjetIA-18-IDEX-0001
+    2018,     #mars 
+  "idex_sorbonne_univ"= #https=//anr.fr/ProjetIA-11-IDEX-0004
+    2012, #mars
+  "idex_strasbourg"= #https=//anr.fr/ProjetIA-10-IDEX-0002
+    2011,#novembre      
+  "idex_2_cote_azur"= #https=//anr.fr/ProjetIA-15-IDEX-0001
+    2016,#avril     
+  'idex_2_grenoble'= #https=//anr.fr/ProjetIA-15-IDEX-0002
+    2016,#avril     
+  'idex_annulee_toulouse'= #https=//anr.fr/ProjetIA-11-IDEX-0002
+    2013,    
+  "idex_annulee_lyon"=#https=//anr.fr/ProjetIA-16-IDEX-0005
+    2017,
+  "idex_lyon_2012"=
+    2012,
+  "idex_psi"=#https=//anr.fr/ProjetIA-16-IDEX-0008
+    2017,
+  "isite_next"=
+    2017,
+  "idex_muse"=
+    2017,
+  "isite_lille"=
+    2017,#mars
+  "idex_future"=
+    2017,#mars
+  "isite_e2s"=
+    2017,#mars
+  "isite_cap_20_25"=
+    2017,#mars
+  "isite_lorraine"=
+    2016,
+  "isite_annule_bfc"=
+    2016,
+  "idex_daum"=
+    2014,
+  "idex_hesam"=
+    2012,
+  "idex_paris_cite_2012"=
+    2012,
+  "multi_idex"= 2011        ,'no_idex'=0
+)

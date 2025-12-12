@@ -36,6 +36,7 @@ ds <- as.data.table(ds) %>%
   .[, ":="(first_y_lab = min(year, na.rm = T),
            n_obs = n_distinct(year), 
            min_n_au = min(n_au, na.rm = TRUE) ), by = c('merged_inst_id','field')] %>%
+  .[, paris := fifelse(city == 'Paris', 1, 0)] %>%
   .[,":="(#idex = ifelse(is.na(idex), 'no_idex', idex),
     acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
     date_first_idex  = ifelse(is.na(date_first_idex ), "0", date_first_idex),
@@ -44,33 +45,37 @@ ds <- as.data.table(ds) %>%
 
 gc()
 
-cols_to_wins <- c("publications_raw","citations_raw","nr_source_btm_50pct_raw",
+cols_to_wins <- c('n_au', "publications_raw","citations_raw","nr_source_btm_50pct_raw",
                   "nr_source_mid_40pct_raw","nr_source_top_20pct_raw","nr_source_top_10pct_raw",
-                  "nr_source_top_5pct_raw","n_au")
+                  "nr_source_top_5pct_raw")
 
 ds_clean <- ds %>%
   #.[is.na(fusion_date) | fusion_date >=2017] %>%
 
-  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
-  .[year >=2003  & year < 2020& !is.na(field)] %>%
+  #.[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
+  .[year >=1997  & year < 2020& !is.na(field)] %>%
   .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
-  .[str_count(field, ',')<2 & !is.na(field)] %>%
+  .[str_count(field, ',')<2 ] %>%
   .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
  # .[first_y_lab <= 2003 ] %>%
   .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
            avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
-  .[acces_rce != "2015" & acces_rce != "2014" & date_first_idex != "2014"]%>%
-  .[, ":="(n_au_2003 = max(as.numeric(year == 2003)*n_au ),
-           avg_publications_2003 = max(as.numeric(year == 2003)*avg_publications ),
-           avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations ),
+  .[acces_rce != "2014" & date_first_idex != "2014" & fusion_date != "2012"]%>%
+  .[, ":="(n_au_2003 = max(as.numeric(year == 1997)*n_au ),
+           min_n_au = min(n_au),
+           avg_publications_2003 = max(as.numeric(year == 1997)*avg_publications ),
+           avg_citations_2003 = max(as.numeric(year == 1997)*avg_citations ),
            last_year_lab = max(year)
            ), by = c('merged_inst_id','field')]%>%
-  .[first_y_lab <= 2003
+  .[first_y_lab <= 1997 & n_au_2003 >0 
     ]
 
 
 summary(ds_clean$n_obs)
 summary(ds_clean$n_au)
+
+summary(ds_clean$min_n_au)
+
 summary(ds$n_au)
 
 gc()
@@ -220,7 +225,7 @@ for(treat in unique(agg_stag_by_g_no_ctrl$treatment)){
   p <- ggplot(agg_stag_by_g_no_ctrl %>% .[treatment %in% c(treat) ])+
     geom_point(aes(x= g, y = est))+
     geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
-    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
     theme_bw()
   pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_g',".pdf"))
@@ -274,7 +279,7 @@ for(treat in unique(agg_stag_by_g_ctrl$treatment)){
   p <- ggplot(agg_stag_by_g_ctrl %>% .[treatment %in% c(treat) ])+
     geom_point(aes(x= g, y = est))+
     geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
-    geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    geom_hline(aes(yintercept = 0))+
     labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
     theme_bw()
   pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_g',".pdf"))

@@ -90,7 +90,20 @@ sample_df <- sample_df %>%
   .[n_obs_au >1 & n_inst_y <=5] %>%
   .[, ':='(n_au_inst_id_field_y = .N), by = c('merged_inst_id', 'field','year')] %>%
   .[, min_n_au_inst_id_field_y := min(n_au_inst_id_field_y), by = c('merged_inst_id', "field")]%>%
-  .[ min_n_au_inst_id_field_y >1 & n_y_sample_inst >= 20] 
+  .[ min_n_au_inst_id_field_y >1 & n_y_sample_inst >= 20] %>%
+  .[!(acces_rce %in%  c(2015))
+    & !(date_first_idex %in% c(2014))] %>%
+  .[, pub_04_07 := sum(as.numeric(year > 2004 & year <= 2007) * publications_raw ), by = 'author_id'] %>%
+  .[pub_04_07 >=2] %>%
+  .[, n_lt := n_distinct(author_id), by = c('merged_inst_id','field','year')] %>%
+  .[, merged_inst_id_field := paste0(merged_inst_id, '_', field)] %>%
+  .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
+  .[year != "2020"] %>%
+  .[ , ':='(fusion_date = as.factor(fusion_date),
+            date_first_idex = as.factor(date_first_idex),
+            acces_rce = as.factor(acces_rce),
+            year = as.factor(year))]
+
 
 gc()
 
@@ -105,45 +118,7 @@ ggplot(sample_df %>%
          .[, .(n =n_distinct(year)), by ='merged_inst_id'])+geom_histogram(aes(x= n) )
 
 
-fwrite(sample_df, "E:\\panel_fr_res\\sample_df.csv")
-# desc stats --------------------------------------------------------------
-
-
-to_plot <- sample_df %>%
-  .[, uni_pub := fifelse(acces_rce == '0', 0, 1) ] %>% 
-  .[, .(citations = mean(citations, na.rm = T),
-                         citations_raw = mean(citations_raw, na.rm = T),
-                         publications = mean(publications_raw, na.rm=T), 
-                         avg_rank_source_raw = mean(avg_rank_source_raw*publications_raw, na.rm=T), 
-                         nr_source_top_5pct = mean(nr_source_top_5pct, na.rm=T))
-                     ,by= c('uni_pub','year')]
-ggplot(to_plot)+
-  geom_line(aes(x=year, y= publications, color =interaction(uni_pub)))+
-  scale_color_manual(values = c('seagreen','steelblue'))+
-  theme_bw()+labs(title = '', color = 'Affected by LRU')+xlab('Year') + ylab('Average publications')+
-  geom_vline(xintercept = 2007, linetype = 'dashed')+
-  geom_vline(xintercept = 2009)
-
-p <- ggplot(to_plot)+
-  geom_line(aes(x=year, y= avg_rank_source_raw, color =interaction(uni_pub)), show.legend = FALSE)+
-  scale_color_manual(values = c('black','steelblue'))+
-  theme_bw()+labs(title = '', color = 'Affected by LRU')+xlab('Year') + ylab('Average journal-quality weighted publications')+
-  geom_vline(xintercept = 2007, linetype = 'dashed')+
-  geom_vline(xintercept = 2009)
-p
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_rankw_pub.png", p)
-
-
-p <- ggplot(to_plot)+
-  geom_line(aes(x=year, y= log(citations), color =interaction(uni_pub)))+
-  scale_color_manual(values = c('black','steelblue'))+
-  theme_bw()+labs(title = '', color = 'Affected by LRU')+xlab('Year') + ylab('Average citations')+
-  geom_vline(xintercept = 2007, linetype = 'dashed')+
-  geom_vline(xintercept = 2009)
-p
-save_plot("E:\\panel_fr_res\\desc_stats\\avg_cit.png", p)
-
-# regressions -------------------------------------------------------------
+#fwrite(sample_df, "E:\\panel_fr_res\\sample_df.csv")
 
 # Arcidiacono peer effects ------------------------------------------------
 
@@ -156,7 +131,7 @@ sample_df$y_i <- sample_df$y
 ####### First step : initialize the guess for author FE
 formula_first_step <- paste0(' y_i ~ 1 ',
                              '| '
-                             ,"author_id + inst_id_field_year"
+                             ,"author_id + merged_inst_id_field^year"
                              ,'+ type^year '
                              ,'+ cnrs^year'
                              ,'+ gender^year'
@@ -182,7 +157,7 @@ sample_df_peers <- sample_df_peers%>%
   .[, ":="( sum_alpha_hat = sum(alpha_hat, na.rm = TRUE),
             n_colab = n_distinct(author_id)
   ),
-  by = c('inst_id_field_year')] %>%
+  by = c('merged_inst_id_field','year')] %>%
   .[, avg_alpha_i_bar := (sum_alpha_hat-alpha_hat)/(n_colab-1) ]
 gc()
 ggplot(unique(sample_df_peers[, list(author_id, alpha_hat)]))+geom_density(aes(x=alpha_hat))
@@ -193,7 +168,7 @@ ggplot(sample_df_peers)+geom_density(aes(x=log(n_colab+1)))
 ####### Second step : Initialize the guess for peer effects
 formula_second_step <- paste0('y~ avg_alpha_i_bar',
                               '| '
-                              ,"author_id + inst_id_field_year"
+                              ,"author_id + merged_inst_id_field^year"
                               ,'+ type^year '
                               ,'+ cnrs^year'
                               ,'+ gender^year'
@@ -219,7 +194,7 @@ names(est_diff_alpha) <- c('diff','i')
 
 ########## Loop for further iterations
 
-for(i in 2:5){
+for(i in 2:10){
   print(paste0('Process for i=', i))
   
   ######## Use estimate to adjust y for peer effects
@@ -245,10 +220,9 @@ for(i in 2:5){
   gc()
   
   sample_df_peers <- sample_df_peers %>%
-    .[, ":="( sum_alpha_hat = sum(alpha_hat, na.rm = TRUE),
-              n_colab = n_distinct(author_id)
+    .[, ":="( sum_alpha_hat = sum(alpha_hat, na.rm = TRUE)
     ),
-    by = c('inst_id_field','year')] %>%
+    by = c('merged_inst_id_field','year')] %>%
     .[, avg_alpha_i_bar := (sum_alpha_hat-alpha_hat)/(n_colab-1) ]
   ggplot(sample_df)+geom_density(aes(x=avg_alpha_i_bar))
   
@@ -272,7 +246,7 @@ cp <- ggplot(est_gamma)+
   geom_line(aes (x=i, y = Estimate))+
   #geom_errorbar(aes(x=i, ymin = Estimate -1.96*`Std. Error`,
   #  ymax = Estimate + 1.96*`Std. Error`))+ylim(0.08, 0.18)+
-  xlab('Number of iterations')+ylab('')+
+  xlab('Number of iterations')+ylab('')+labs(title = 'Point estimate for peer effects')+
   theme_minimal()
 cp
 
@@ -280,17 +254,313 @@ save_plot("E:\\panel_fr_res\\productivity_results\\convergence_estimate.png",cp)
 
 
 cp_aufe <- ggplot(est_diff_alpha[i>1])+
-  geom_point(aes(x=as.factor(i), y = diff))+
-  geom_line(aes(x=i-1, y= diff))+
-  xlab('Number of iterations')+ylab('')+
+  geom_point(aes(x=as.factor(i), y = log(diff)))+
+  geom_line(aes(x=i-1, y=  log(diff)))+
+  xlab('Number of iterations')+ylab('')+labs(title = 'Log sum of square differences compared to FE estimates from previous step')+
   theme_minimal()
 cp_aufe
 save_plot("E:\\panel_fr_res\\productivity_results\\convergence_fe.png",cp_aufe)
 
-sample_df_peers <- sample_df_peers %>%
-  .[year >=2003] %>%
-  .[, ':='(alpha_hat_i_minus_1 = alpha_hat,
-           alpha_hat = fixef(second_step)$author_id[author_id],
-           y_i = log_citations- est_gamma[[5,1]]*avg_alpha_i_bar- alpha_hat )] 
 
-fwrite(sample_df_peers, "E:\\panel_fr_res\\sample_df_reg.csv")
+list_alpha_hat <- unique(sample_df_peers %>% .[, list(author_id)]) %>%
+  .[,alpha_hat := fixef(second_step)$author_id[author_id]]
+fwrite(list_alpha_hat, "E:\\panel_fr_res\\calibration\\list_alpha_hat.csv")
+
+
+
+sample_df_peers <- sample_df %>%
+  .[, alpha_hat := fixef(first_step)$author_id[author_id]]
+
+####### Guess average peer FE from first guess
+sample_df_peers <- sample_df_peers%>%
+  .[, ":="( sum_alpha_hat = sum(alpha_hat, na.rm = TRUE),
+            n_colab = n_distinct(author_id)
+  ),
+  by = c('merged_inst_id_field','year')] %>%
+  .[, avg_alpha_i_bar := (sum_alpha_hat-alpha_hat)/(n_colab-1) ] %>%
+  .[, y_i := log_citations - est_gamma[[8,1]]*avg_alpha_i_bar-alpha_hat ] %>%
+  .[, Period :=case_when(year %in% 2003:2006 ~ "2003-2006",
+                         year %in% 2016:2019 ~ "2016-2019",
+                         .default = NA)]
+  
+gc()
+fwrite(sample_df_peers, "E:\\panel_fr_res\\sample_df_peers.csv")
+sample_df_peers <- fread("E:\\panel_fr_res\\sample_df_peers.csv")
+
+to_plot <- unique(sample_df_peers[, list(author_id, Period, alpha_hat)]) %>%
+  .[!is.na(Period)]
+
+p <- ggplot(to_plot)+
+  geom_density(aes(x=alpha_hat, color = Period))+  
+  scale_color_manual(values = c('steelblue','firebrick'))+
+  xlab('Researcher FE')+ylab('')+labs(title = 'Density for the period')+
+  theme_minimal()
+p
+save_plot("E:\\panel_fr_res\\productivity_results\\density_alpha.png",p)
+
+##### Estimating 
+
+
+
+list_g = list( "acces_rce" = sort(unique(sample_df_peers[acces_rce !=0]$acces_rce))
+               ,"date_first_idex" = sort(unique(sample_df_peers[date_first_idex !=0]$date_first_idex))
+               , "fusion_date" = sort(unique(sample_df_peers[fusion_date !=0]$fusion_date))
+)
+gc()
+
+
+formula_elements <- c()
+for(d in c('acces_rce'#
+           , 'date_first_idex', 'fusion_date'#,'rce_idex'
+)){
+  for(g_i in list_g[[d]]){
+    print(paste0(d, ': ', g_i))
+    varname =paste0(d, '_', g_i)
+    #ref = as.character(as.numeric(g_i)-1)
+    sample_df_peers[[varname]] <- as.numeric((sample_df_peers[[paste0(d)]] == g_i))
+    formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ')'))
+  }}  
+length(formula_elements)
+
+gc()
+fe_large = paste0(  ' | merged_inst_id_field + '
+                    ,'year '
+                    ,'+ type^year '
+                    ,'+ gender^year'
+                    ,'+ public^year'
+                    ,'+ ecole^year'
+                    ,'+ cnrs^year'
+                    ,'+ field^year'
+                    ,'+ entry_year^year '
+                    ,'+ city^year'
+                    
+)
+gc()
+
+formula_ctrl <- as.formula(paste0( 'y_i ~ ',  paste0(formula_elements, collapse= '+'), fe_large))
+list_es <- list()
+for(period in c("2003-2006", "2016-2019")){
+  start_time <- Sys.time()
+  es_stag_w_ctrl <- feols(formula_ctrl,
+                           , data = sample_df_peers %>% .[Period == period] 
+                           ,mem.clean = TRUE,fixef.tol = 1E-8
+                           ,cluster = c('author_id','merged_inst_id_field')
+  ) 
+  time_taken <- Sys.time()-start_time
+  gc()
+  print(time_taken)
+  list_es[[period]] <- es_stag_w_ctrl
+}
+
+saveRDS(list_es, file = "E:\\panel_fr_res\\productivity_results\\individual\\regressions_for_calibration.rds")
+list_es <- readRDS("E:\\panel_fr_res\\productivity_results\\individual\\regressions_for_calibration.rds")
+
+fe_distrib <- rbind(as.data.table(fixef( list_es[["2003-2006"]] )$merged_inst_id_field, keep.rownames = TRUE) %>%
+                      .[, period := "2003-2006"],
+                    as.data.table(fixef( list_es[["2016-2019"]] )$merged_inst_id_field, keep.rownames = TRUE) %>%
+                    .[, period := "2016-2019"]
+                    )
+colnames(fe_distrib) <- c('merged_inst_id_field','lambda_hat','Period')
+
+p <- ggplot(fe_distrib)+
+  geom_density(aes(x=lambda_hat, color = Period))+  
+  scale_color_manual(values = c('steelblue','firebrick'))+
+  xlab('Institution X Field FE')+ylab('')+labs(title = 'Density for the period')+
+  theme_minimal()
+p
+save_plot("E:\\panel_fr_res\\productivity_results\\density_lambda.png",p)
+
+sample_for_calibration <- merge(sample_df_peers %>%
+                                  .[, incumbent := fifelse(as.numeric(as.character(lag(year, order_by = year)))==
+                                                                                     as.numeric(as.character(year))-1, 1, 0),
+                                    by = c('merged_inst_id_field','author_id')] %>%
+                                  .[, ":="(sum_alpha_hat_incumbents = sum( as.numeric(incumbent == 1)*alpha_hat, na.rm= T ),
+                                           n_incumbents = sum(incumbent, na.rm = T)
+                                           ), by = c('merged_inst_id_field','year')] %>%
+                                  .[, avg_alpha_i_incumbents := sum_alpha_hat_incumbents/n_incumbents],
+                        fe_distrib, by = c('merged_inst_id_field','Period'))
+
+
+fwrite(sample_for_calibration, "E:\\panel_fr_res\\sample_for_calibration.csv")
+
+sample_for_calibration <- fread("E:\\panel_fr_res\\sample_for_calibration.csv")
+
+p <- ggplot(sample_for_calibration)+
+  geom_density(aes(x=lambda_hat + avg_alpha_i_incumbents, color = Period))+  
+  scale_color_manual(values = c('steelblue','firebrick'))+
+  xlab('Institution X Field + Average Peer FE')+ylab('')+labs(title = 'Density for the period')+
+  theme_minimal()
+p
+save_plot("E:\\panel_fr_res\\productivity_results\\density_lambda_plus_peers.png",p)
+
+
+all_au <- unique(sample_for_calibration %>%
+                   .[, list(author_id, gender, entry_year, field, x, Period)])%>%
+  .[, year := ifelse(Period == "2003-2006", "2005", "2017")]
+fwrite(all_au, "E:\\panel_fr_res\\calibration\\list_x.csv")
+
+
+all_inst <- unique(as.data.table(sample_for_calibration %>%
+                                   .[, y := mean(y, na.rm =T), by = c('Period', "merged_inst_id_field")] %>%
+                                   select(merged_inst_id_field, type, public, ecole, cnrs, 
+                                          city, Period, y, 
+                                          contains('acces_rce'), contains('date_first_idex'), contains('fusion_date')) ))%>%
+  .[, year := ifelse(Period == "2003-2006", "2005", "2017")]
+fwrite(all_inst, "E:\\panel_fr_res\\calibration\\list_y.csv")
+
+##### Get empirical match density
+p_load("MASS","plotly",'mgcv')
+sample_for_calibration <- sample_for_calibration %>%
+  .[, ':='(y = lambda_hat + avg_alpha_i_incumbents
+           ,x = alpha_hat) ]  
+
+data_estimation <- sample_for_calibration[Period == "2003-2006"][!is.na(x) & !is.na(y)]
+
+cutoffs_x <-  as.vector(quantile(data_estimation$x, c(0.01, 0.99)))
+cutoffs_y <-  as.vector(quantile(data_estimation$y, c(0.01, 0.99)))
+
+#data_estimation <- data_estimation[ (x>= cutoffs_x[1] & x<=cutoffs_x[2])
+#                                    & (y>= cutoffs_y[1] & y<=cutoffs_y[2])]
+
+ggplot(data_estimation)+geom_density(aes(x=log_citations, color = as.factor(public)))
+
+
+model_03_06_private <- mgcv::bam(log_citations ~ te(x,y, k = c(20,20)),
+                                 data = data_estimation[public == 0],
+                                 method = "fREML",
+                                 discrete = TRUE
+                                 )
+model_03_06_public <- mgcv::bam(log_citations ~  te(x,y, k = c(20,20)),
+                                 data = data_estimation[public == 1],
+                                 method = "fREML",
+                                 discrete = TRUE
+)
+
+nx <- 100
+ny <- 100
+x_grid <- seq(min(data_estimation$x), max(data_estimation$x), length.out = nx)
+y_grid <- seq(min(data_estimation$y), max(data_estimation$y), length.out = ny)
+
+grid <- expand.grid(x = x_grid, y = y_grid)
+
+grid$z_hat_private <- predict(model_03_06_private, newdata = grid)
+grid$z_hat_public <- predict(model_03_06_public, newdata = grid)
+
+# 3. Reshape predictions into matrix for plotly
+z_mat_private <- matrix(grid$z_hat_private, nrow = nx, ncol = ny, byrow = FALSE)
+z_mat_public <- matrix(grid$z_hat_public, nrow = nx, ncol = ny, byrow = FALSE)
+
+# 4. Plot with plotly
+fig <- plot_ly() %>%
+  add_surface(
+    x = x_grid,
+    y = y_grid,
+    z = z_mat_private,
+    colorscale = "Blues",    # first color
+    opacity    = 0.5,
+    name       = "Model 1",
+    showscale  = FALSE
+  ) %>%
+  add_surface(
+    x = x_grid,
+    y = y_grid,
+    z = z_mat_public,
+    colorscale = "Reds",     # second color
+    opacity    = 0.5,
+    name       = "Model 2",
+    showscale  = FALSE
+  ) %>%
+  layout(
+    legend = list(
+      orientation = "h",
+      x = 0.1,
+      y = 1.05
+    ),
+    scene = list(
+      xaxis = list(title = "x"),
+      yaxis = list(title = "y"),
+      zaxis = list(title = "f(x,y)")
+    )
+  )
+fig
+write.csv(
+  data.frame(grid  ),
+  "E:\\panel_fr_res\\calibration\\f_x_y_03_06.csv",
+  row.names = FALSE
+)
+
+
+
+to_plot <- sample_for_calibration %>%
+  #.[incumbent == 0 ] %>%
+  .[, ':='(y = lambda_hat + avg_alpha_i_incumbents
+           ,x = alpha_hat) ]  %>%
+  .[!is.na(x) & !is.na(y)]
+
+to_plot <- to_plot %>%
+  .[(x>=cutoffs_x[[1]] & x<= cutoffs_x[[2]])
+    &(y>=cutoffs_y[[1]] & y<= cutoffs_y[[2]]) ]%>%
+ .[, ':='(x = (x-min(x, na.rm =T))/(max(x, na.rm =T)-min(x, na.rm = T)),
+           y = (y-min(y, na.rm =T))/(max(y, na.rm =T)-min(y, na.rm = T)))]
+
+kd <- with(to_plot[Period == "2003-2006"], MASS::kde2d(x, y, n = 50))
+
+fig <- plot_ly(x = kd$x, y = kd$y, z = kd$z) %>% add_surface()
+
+
+fig
+
+test_lm <- feols( x ~ y*Period*any_treatment |Period^field^incumbent^public^type
+  ,data= sample_for_calibration %>%
+    .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                                                               &fusion_date == '0', "Control","Treated")]
+)
+summary(test_lm)
+
+test_lm <- feols( x ~ y*Period*any_treatment -1
+                  ,data= sample_for_calibration %>%
+                    .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                                 &fusion_date == '0', "Control","Treated")]
+)
+summary(test_lm)
+
+test_lm <- feols( x ~ y -1
+                  ,data= sample_for_calibration
+)
+summary(test_lm)
+
+
+
+
+#data_for_x_y <- merge(all_au,
+#                                all_inst,
+#                                by = c("Period",'year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
+#gc()
+
+
+data_for_x_y_2003_2006 <- merge(all_au[Period == "2003-2006"],
+                      all_inst[Period =="2003-2006"],
+                         by = c("Period",'year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
+gc()
+data_for_x_y_2003_2006 <- data_for_x_y_2003_2006[ !is.na(x) & !is.na(y)]
+gc()
+
+data_for_x_y_2003_2006$f_x_y = predict(list_es$`2003-2006`, newdata = data_for_x_y_2003_2006 ) 
+gc()
+fwrite(data_for_x_y_2003_2006, "E:\\panel_fr_res\\full_table_for_calibration_03_06.csv")
+gc()
+
+model_03_06 <- loess(f_x_y ~ x * y , data = data_for_x_y_2003_2006)
+
+
+
+fig_03_06 <- plot_ly(x = data_for_x_y_2003_2006$x, y = data_for_x_y_2003_2006$y, z = data_for_x_y_2003_2006$f_x_y) %>% add_markers()
+fig
+
+data_for_x_y_2003_2006 <- merge(all_au[Period == "2003-2006"],
+                                all_inst[Period =="2003-2006"],
+                                by = c("Period",'field','year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
+gc()
+
+data_for_x_y_2003_2006$f_x_y = predict(list_es$`2003-2006`, newdata = data_for_x_y_2003_2006 )
+

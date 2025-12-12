@@ -44,7 +44,7 @@ sample_df_reg <- sample_df_peers %>%
   .[!(acces_rce %in%  c(2015))
     & !(date_first_idex %in% c(2014))] %>%
   .[, pub_04_07 := sum(as.numeric(year > 2004 & year <= 2007) * publications_raw ), by = 'author_id'] %>%
-  #.[pub_04_07 >=2] %>%
+  .[pub_04_07 >=2] %>%
   .[, n_lt := n_distinct(author_id), by = c('merged_inst_id','field','year')] %>%
   .[, merged_inst_id_field := paste0(merged_inst_id, '_', field)] %>%
   .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
@@ -55,13 +55,159 @@ sample_df_reg <- sample_df_peers %>%
             year = as.factor(year))]
 
 length(unique(sample_df_reg$author_id)) #90515
-nrow(unique(sample_df_reg[, list(merged_inst_id, field)])) #2829
+nrow(unique(sample_df_reg[, list(merged_inst_id, field)])) #2827
 
 ggplot(sample_df_reg %>% .[, .(total_publis = sum(publications_raw)), by = 'author_id'])+
   geom_density(aes(x=log(total_publis)))
-
-
 #rm(sample_df_peers)
+
+
+p <- ggplot(sample_df_peers %>% 
+              .[year < 2020] %>%
+              .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                           &fusion_date == '0', "Control","Treated")] %>%
+              .[, .(N = mean(publications_raw, na.rm =T)) ,by = c('any_treatment','year')]
+)+
+  geom_line(aes(x=year,y=N, color = any_treatment, group = any_treatment), linewidth = 0.5)+
+  scale_color_manual(values = c("black","steelblue"))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_publications.png", p)
+
+
+
+p <- ggplot(sample_df_peers %>% 
+              .[year < 2020] %>%
+              .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                           &fusion_date == '0', "Control","Treated")] %>%
+              .[, .(N = mean(citations_raw, na.rm =T)) ,by = c('any_treatment','year')]
+)+
+  geom_line(aes(x=year,y=N, color = any_treatment, group = any_treatment), linewidth = 0.5)+
+  scale_color_manual(values = c("black","steelblue"))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_citations.png", p)
+
+
+
+p <- ggplot(sample_df_peers %>% 
+              .[year < 2020] %>%
+              .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                           &fusion_date == '0', "Control","Treated")] %>%
+              .[, .(N = mean(nr_source_top_5pct_raw, na.rm =T)) ,by = c('any_treatment','year')]
+)+
+  geom_line(aes(x=year,y=N, color = any_treatment, group = any_treatment), linewidth = 0.5)+
+  scale_color_manual(values = c("black","steelblue"))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_nr_source_top_5pct.png", p)
+
+
+p <- ggplot(sample_df_peers %>% 
+              .[year < 2020] %>%
+              .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
+                                           &fusion_date == '0', "Control","Treated")] %>%
+              .[, .(N = mean(avg_rank_source, na.rm =T)) ,by = c('any_treatment','year')]
+)+
+  geom_line(aes(x=year,y=N, color = any_treatment, group = any_treatment), linewidth = 0.5)+
+  scale_color_manual(values = c("black","steelblue"))+
+  geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 6))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\avg_rank_source.png", p)
+
+
+
+
+
+p <- ggplot(unique(sample_df_peers %>% 
+              .[acces_rce != 0 & year %in%2004:2007] %>%
+                .[, list(merged_inst_id, field, domain, acces_rce, n_au_inst_id_field_y,year)])%>%
+              .[, .(N = mean(n_au_inst_id_field_y, na.rm =T)) ,by = c('acces_rce',"domain")] %>%
+              .[nchar(domain)<3] %>% .[, domain_char := case_when(domain == '1' ~ "Life Sciences",
+                                                                  domain == '2' ~ "Social Sciences",
+                                                                  domain == '3' ~ "Physical Sciences",
+                                                                  domain == '4' ~ "Health Sciences"
+                                                                  )]
+)+
+  geom_col(aes(x=acces_rce,y=N, fill = domain_char), linewidth = 0.5, position = "dodge")+
+  scale_fill_manual(values = c("steelblue","aquamarine3","brown","goldenrod"))+
+  #geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 10))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\characteristics_acces_rce.png", p)
+
+
+
+
+p <- ggplot(unique(sample_df_peers %>% 
+                     .[date_first_idex != 0 & year %in%2004:2007] %>%
+                     .[, list(merged_inst_id, field, domain, date_first_idex, n_au_inst_id_field_y,year)])%>%
+              .[, .(N = mean(n_au_inst_id_field_y, na.rm =T)) ,by = c('date_first_idex',"domain")] %>%
+              .[nchar(domain)<3] %>% .[, domain_char := case_when(domain == '1' ~ "Life Sciences",
+                                                                  domain == '2' ~ "Social Sciences",
+                                                                  domain == '3' ~ "Physical Sciences",
+                                                                  domain == '4' ~ "Health Sciences"
+              )]
+)+
+  geom_col(aes(x=date_first_idex,y=N, fill = domain_char), linewidth = 0.5, position = "dodge")+
+  scale_fill_manual(values = c("steelblue","aquamarine3","brown","goldenrod"))+
+  #geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 10))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\characteristics_date_first_idex.png", p)
+
+
+p <- ggplot(unique(sample_df_peers %>% 
+                     .[fusion_date != 0 & year %in%2004:2007] %>%
+                     .[, list(merged_inst_id, field, domain, fusion_date, n_au_inst_id_field_y,year)])%>%
+              .[, .(N = mean(n_au_inst_id_field_y, na.rm =T)) ,by = c('fusion_date',"domain")] %>%
+              .[nchar(domain)<3] %>% .[, domain_char := case_when(domain == '1' ~ "Life Sciences",
+                                                                  domain == '2' ~ "Social Sciences",
+                                                                  domain == '3' ~ "Physical Sciences",
+                                                                  domain == '4' ~ "Health Sciences"
+              )]
+)+
+  geom_col(aes(x=fusion_date,y=N, fill = domain_char), linewidth = 0.5, position = "dodge")+
+  scale_fill_manual(values = c("steelblue","aquamarine3","brown","goldenrod"))+
+  #geom_vline(aes(xintercept = 2007), linetype ='dashed')+ geom_vline(aes(xintercept = 2009))+
+  theme_bw()+ 
+  theme(legend.title = element_blank(),legend.position = 'bottom',legend.box.margin = margin(),legend.text = element_text(size = 10))+
+  #guides(color = guide_legend(nrow=2,byrow=TRUE))+
+  labs(title = '')+xlab('Year')+ylab('')
+p
+
+save_plot("E:\\panel_fr_res\\desc_stats\\characteristics_fusion_date.png", p)
+
+
+
 
 list_g = list( "acces_rce" = sort(unique(sample_df_reg[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(sample_df_reg[date_first_idex !=0]$date_first_idex))
@@ -138,13 +284,18 @@ dict_vars <- c('acces_rce'= 'University autonomy',
                "|merged_inst_id"= 'Institution',
                " |merged_inst_id"= 'Institution',
                "|merged_inst_id_field"= 'Institution $\\times$ field',
-               " |merged_inst_id"= 'Institution $\\times$ field'
+              "| merged_inst_id_field"= 'Institution $\\times$ field',
+              " | merged_inst_id_field"= 'Institution $\\times$ field',
+              "author_id"= 'Author',              "year"= 'Year',  "entry_year"= 'Entry year',
+              "field"= 'Field',              "gender"= 'Gender',
+              " |merged_inst_id"= 'Institution $\\times$ field'
 )
 gc()
 
 outcomes <- c('publications_raw', 'publications',
               'citations_raw','citations',
-              'nr_source_top_5pct_raw', 'nr_source_top_5pct'
+              'nr_source_top_5pct_raw', 'nr_source_top_5pct',
+              'nr_source_top_10pct_raw', 'nr_source_top_10pct'
 )
 for(var in outcomes){
   no_ctrl_path = "E:\\panel_fr_res\\productivity_results\\individual\\no_ctrl\\"
@@ -193,17 +344,17 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.
 
 for(var in outcomes){
   
-  agg_stag_no_ctrl <- agg_effects(list_es[[var]][['no_ctrl']], sample_df_reg, t_limit = 7)%>%
+  agg_stag_no_ctrl <- agg_effects(list_es[[var]][['no_ctrl']], sample_df_reg, t_limit = 5)%>%
     .[, var := var] %>% .[, ctrl := 'None']
   agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
-  agg_stag_by_t_no_ctrl <- agg_effect_het(list_es[[var]][['no_ctrl']], sample_df_reg, by  ='t')%>%
+  agg_stag_by_t_no_ctrl <- agg_effect_het(list_es[[var]][['no_ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
     .[, var := var] %>% .[, ctrl := 'None']
   agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_no_ctrl)
   for(treat in unique(agg_stag_by_t_no_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
+    p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat)])+
       geom_point(aes(x= t, y = est))+
       geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
-      geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+      geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
       theme_bw()
     pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_t',".pdf"))
@@ -231,19 +382,19 @@ for(var in outcomes){
   
   
   
-  agg_stag_ctrl <- agg_effects(list_es[[var]][['ctrl']], sample_df_reg, t_limit =7)%>%
+  agg_stag_ctrl <- agg_effects(list_es[[var]][['ctrl']], sample_df_reg, t_limit = 5)%>%
     .[, var := var] %>% .[, ctrl := fe_large]
   
   agg_stag <- rbind(agg_stag, agg_stag_ctrl)
-  agg_stag_by_t_ctrl <- agg_effect_het(list_es[[var]][['ctrl']], sample_df_reg, by  ='t')%>%
+  agg_stag_by_t_ctrl <- agg_effect_het(list_es[[var]][['ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
     .[, var := var] %>% .[, ctrl := fe_large]
   agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_ctrl)
   
   for(treat in unique(agg_stag_by_t_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat) & abs(t)<=7])+
+    p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat)])+
       geom_point(aes(x= t, y = est))+
       geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
-      geom_vline(aes(xintercept = -1), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+      geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
       theme_bw()
     pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_t',".pdf"))
@@ -312,6 +463,19 @@ make_stargazer_like_table_dt(agg_stag %>%
                              save_path = 'E:\\panel_fr_res\\productivity_results\\individual\\agg_prod_raw.tex'
 )
 
+make_stargazer_like_table_dt(agg_stag %>%
+                               .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)], 
+                             var_map = dict_vars, 
+                             treat_map = dict_vars, 
+                             pre_mean = pre_mean,
+                             n_obs = n_obs,
+                             r_2 = r_2,
+                             var_order = outcomes, 
+                             drop_unlisted_vars = TRUE,
+                             save_path = 'E:\\panel_fr_res\\productivity_results\\individual\\agg_alt_var.tex'
+)
+
+
 # Cohort heterogeneity -----------------------------------------------------------
 
 all_coefs <- as.data.table(list_es[[var]][['no_ctrl']]$coeftable, keep.rownames = TRUE)%>%
@@ -338,68 +502,156 @@ saveRDS(list_es, file = "E:\\panel_fr_res\\productivity_results\\individual\\all
 list_es <- readRDS("E:\\panel_fr_res\\productivity_results\\individual\\all_regressions.rds")
 # Heterogeneity -----------------------------------------------------------
 
-
-alpha_hats <- unique(sample_df_reg$alpha_hat)
-
-sample_df_reg <- sample_df_reg %>% .[, quantile_au_fe := cut(alpha_hat, breaks = quantile(alpha_hats, c(0:4/4), include.lowest = TRUE),
-                                                             labels = lapply(1:4, as.character))]
-list_es = list()
-
-formula_het_no_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + quantile_au_fe*(', 
-                                          paste0(formula_elements, collapse= '+'), ')', fe_min))
-formula_het_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + quantile_au_fe*(', 
-                                       paste0(formula_elements, collapse= '+'), ')',
-                                       fe_large))
-sample_df_reg$y <- sample_df_reg[["citations"]]
-
-sample_df_reg <- sample_df_reg %>%
-  .[, ':='(y_lt = sum(y)), by = c('inst_id_field','year')] %>%
-  .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
-
+list_all_idex <- unlist(lapply(unique((sample_df_reg$idex)), str_split, pattern = ","))
+list_all_idex <- list_all_idex[list_all_idex !='']
+formula_elements_by_idex <- c()
+for(idex_occ in list_all_idex){
+    print(idex_occ)
+    varname =idex_occ
+    ref = as.character(as.numeric(idex_dict_dates[[idex_occ]])-1)
+    sample_df_reg[[varname]] <- as.numeric(str_detect(sample_df_reg[['idex']], idex_occ))
+    formula_elements_by_idex <- c(formula_elements_by_idex, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+  } 
+length(formula_elements_by_idex)
 gc()
-start_time <- Sys.time()
-es_stag_het <- fepois(formula_het_no_ctrl
-                  , data = sample_df_reg
-                  ,cluster = c('inst_id','author_id')
-) 
-time_taken <- Sys.time() - start_time
-print(time_taken)
-gc()
-coefs <- as.data.table(es_stag_het$coeftable, keep.rownames = TRUE)
-coefs$var <- coefs$rn
-coefs <- coefs %>%
-  .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-  .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-  .[, g := str_extract(var, '(?<=_)[0-9]+$')] %>%
-  .[, quant := str_extract(var, '(?<=quantile_au_fe)[0-9]')] %>%
-  .[, quant := fifelse(is.na(quant), 'global', quant)] %>%
-  .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
-  .[, t := as.numeric(year)-as.numeric(g)] 
 
-agg_stag_no_ctrl <- agg_effect_het(es_stag_het, by = 'quant', sample_df_reg)%>%
-  .[, var := var] %>% .[, ctrl := 'None']
-
-p <- ggplot(agg_stag_no_ctrl %>% .[treatment %in% c(treat)])+
-  geom_point(aes(x= quant, y = est))+
-  geom_errorbar(aes(x=quant, ymin = est -1.96*std, ymax=est+1.96*std))+
-  geom_hline(aes(yintercept = 0))+
-  labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Quantile')+ ylab('Estimate and 95% CI')+
-  theme_bw()
-p
-for(treat in names(list_g)){
-  print(ggplot(coefs %>% .[d %in% c(treat) & `Std. Error` <100])+
-  geom_point(aes(x= t, y = Estimate, color = quant))+
-  geom_errorbar(aes(x=t, ymin = Estimate -1.96*`Std. Error`, ymax=Estimate+1.96*`Std. Error`, color = quant))+
-  geom_hline(aes(yintercept = 0))+
-  labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
-  theme_bw())
-  print(ggplot(agg_stag_no_ctrl %>% .[treatment %in% c(treat)])+
-          geom_point(aes(x= quant, y = est))+
-          geom_errorbar(aes(x=quant, ymin = est -1.96*std, ymax=est+1.96*std))+
-          geom_hline(aes(yintercept = 0))+
-          labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Quantile')+ ylab('Estimate and 95% CI')+
-          theme_bw())
-  }
+list_es_het_by_idex <- list()
+outcomes_idex <- c('publications_raw','citations_raw','nr_source_top_5pct_raw')
+formula_het_by_idex <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  
+                                          paste0(c(formula_elements[!str_detect(formula_elements, "idex")],
+                                                   formula_elements_by_idex), collapse= '+'), 
+                                          fe_large)) 
 
 
+for(var in outcomes_idex){
+  sample_df_reg$y <- sample_df_reg[[var]]
+  
+  sample_df_reg <- sample_df_reg %>%
+    .[, ':='(y_lt = sum(y)), by = c('merged_inst_id',"field", 'year')] %>%
+    .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
+  
+  
+  list_es_het_by_idex[[var]] <- list()
 
+  start_time <- Sys.time()
+  es_stag_w_ctrl <- fepois(formula_het_by_idex,
+                           , data = sample_df_reg 
+                           ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
+                           ,cluster = c('author_id','merged_inst_id_field')
+  ) 
+  time_taken <- Sys.time()-start_time
+  gc()
+  print(time_taken)
+  list_es_het_by_idex[[var]][['ctrl']] <- es_stag_w_ctrl
+}
+saveRDS(list_es_het_by_idex, file = "E:\\panel_fr_res\\productivity_results\\individual\\regressions_by_idex.rds")
+
+agg_stag_idex <- rbind(as.data.table(agg_effects_idex(list_es_het_by_idex[["publications_raw"]][['ctrl']], sample_df_reg, t_limit = 5)) %>% .[, var := "publications_raw"],
+                       as.data.table(agg_effects_idex(list_es_het_by_idex[["citations_raw"]][['ctrl']], sample_df_reg, t_limit = 5))%>% .[, var := "citations_raw"],
+                       as.data.table(agg_effects_idex(list_es_het_by_idex[["nr_source_top_5pct_raw"]][['ctrl']], sample_df_reg, t_limit = 5))%>% .[, var := "nr_source_top_5pct_raw"])
+
+idex_names_to_plot <-c('multi_idex' = "Several IDEX",
+                       
+                       "idex_bordeaux" = 'Bordeaux',
+                       "idex_lyon_2012" = "Lyon (2012)",      
+                       "idex_muse" = "MUSE (Montpellier)"            ,
+                       "isite_lille"= "Lille (Isite)"          , 
+                       "idex_future"= 'Future (East Paris)'         ,  
+                       "idex_paris_cite" = 'Paris Cité (2018)'      ,
+                       "idex_paris_cite_2012" = 'Paris Cité (2012)'  , 
+                       "idex_sorbonne_univ"    = 'Sorbonne Université' ,
+                       "idex_aix_marseille"  = 'Aix Marseille' , 
+                       "isite_cap_20_25"   = "CAP 20-25 (Auvergne)" ,   
+                       "idex_2_grenoble"   = "Grenoble"   ,
+                       "idex_psl"          = "PSL"   , 
+                       "idex_paris_saclay" = "Paris Saclay"   , 
+                         "isite_next"    = "Next (Isite, Nantes)"  ,      
+                       "idex_2_cote_azur" = "Côte d'Azur"    ,
+                       "idex_hesam"       = "HESAM (Paris, art)"    ,
+                       "idex_psi"        = "PSI (Cergy)"     , 
+                       "isite_lorraine"  =  "Lorraine (Isite)" ,   
+                       "isite_e2s" = "E2S (Isite, Pau)",  
+                       "idex_annulee_lyon" = 'Lyon',
+                       "idex_annulee_toulouse" = "Toulouse",
+                       'isite_annule_bfc' = 'BFC (Besançon)'
+                       
+)
+
+idex_names_to_plot <- idex_names_to_plot[c('multi_idex', names(sort(idex_dict_dates))[!names(sort(idex_dict_dates))
+        %in% c("idex_annulee_lyon","idex_annulee_toulouse",'isite_annule_bfc','multi_idex')
+        & names(sort(idex_dict_dates)) %in% names(idex_names_to_plot)
+        ],
+                     "idex_annulee_lyon",
+                     "idex_annulee_toulouse",
+                     'isite_annule_bfc')]
+apply_map <- function(x, m) {
+  if (is.null(m)) return(x)
+  if (is.list(m)) m <- unlist(m, use.names = TRUE)
+  if (is.null(names(m)) || any(is.na(names(m)))) stop("var_map/treat_map must be named.")
+  idx <- match(x, names(m)); out <- x; repl <- !is.na(idx); out[repl] <- unname(m[idx[repl]]); out
+}
+colors <- c("multi"   = "firebrick3",
+            "2011"    = "steelblue1",
+            "2012"    = "steelblue2",
+            "2013"    = "steelblue3",
+            "2016"    = "steelblue",
+            "2017"    = "steelblue4",
+            
+            "2018"    = "black",
+            "annulee" = "grey30"
+)
+
+agg_stag_idex <- agg_stag_idex %>% .[!treat %in% c('acces_rce','fusion_date')] %>%
+  .[, idex := apply_map(treat, idex_names_to_plot) ] %>%
+  .[, idex := factor(idex, levels = idex_names_to_plot)] %>%
+  .[, date := apply_map(treat, idex_dict_dates) ] %>%
+  .[, label_color := case_when(treat == "multi_idex" ~"multi",
+                              str_detect(treat, "annule") ~"annulee",
+                              .default = date)] 
+  
+
+p <- ggplot(agg_stag_idex %>%
+              .[var == "publications_raw"  & !str_detect(treat, 'lorraine') ])+
+      geom_point(aes(x= idex, y = est, color = label_color))+
+      geom_errorbar(aes(x=idex, ymin = est -1.96*std, ymax=est+1.96*std, color = label_color))+
+  scale_color_manual(values =colors)+
+      geom_vline(aes(xintercept = 1.5), linetype = "dashed")+
+      geom_vline(aes(xintercept = 19.5), linetype = "dashed")+
+      geom_hline(aes(yintercept = 0))+
+      labs(title = paste0('Effect by IDEX on publications '))+xlab('IDEX name')+ ylab('Estimate and 95% CI')+
+      theme_bw()+theme(axis.text.x = element_text(angle =45, hjust =1),legend.position = "None")+
+  ggpubr::geom_bracket(xmin = 19.5, xmax = 22.5, y.position = 1, label = "Cancelled")
+pdf(paste0(ctrl_path, 'publications_raw_by_idex',".pdf"))
+print(p)
+dev.off()
+    
+p <- ggplot(agg_stag_idex %>%
+                  .[var == "citations_raw" & !str_detect(treat, 'lorraine') ])+
+      geom_point(aes(x= idex, y = est, color = label_color))+
+      geom_errorbar(aes(x=idex, ymin = est -1.96*std, ymax=est+1.96*std, color = label_color))+
+      scale_color_manual(values =colors)+
+      geom_vline(aes(xintercept = 1.5), linetype = "dashed")+
+      geom_vline(aes(xintercept = 19.5), linetype = "dashed")+
+      geom_hline(aes(yintercept = 0))+
+      labs(title = paste0('Effect by IDEX on citations '))+xlab('IDEX name')+ ylab('Estimate and 95% CI')+
+      theme_bw()+theme(axis.text.x = element_text(angle =45, hjust =1),legend.position = "None")+
+      ggpubr::geom_bracket(xmin = 19.6, xmax = 22.5, y.position = 1, label = "Cancelled")
+pdf(paste0(ctrl_path, 'citations_raw_by_idex',".pdf"))
+print(p)
+dev.off()
+
+    
+p <- ggplot(agg_stag_idex %>%
+                  .[var == "nr_source_top_5pct_raw" & !str_detect(treat, 'bordeaux')])+
+      geom_point(aes(x= idex, y = est, color = label_color))+
+      geom_errorbar(aes(x=idex, ymin = est -1.96*std, ymax=est+1.96*std, color = label_color))+
+      scale_color_manual(values =colors)+
+      geom_vline(aes(xintercept = 1.5), linetype = "dashed")+
+      geom_vline(aes(xintercept = 19.5), linetype = "dashed")+
+      geom_hline(aes(yintercept = 0))+
+      labs(title = paste0('Effect by IDEX on publications in top 5% cited journals '))+xlab('IDEX name')+ ylab('Estimate and 95% CI')+
+      theme_bw()+theme(axis.text.x = element_text(angle =45, hjust =1),legend.position = "None")+
+      ggpubr::geom_bracket(xmin = 19.6, xmax = 22.5, y.position = 1, label = "Cancelled")
+pdf(paste0(ctrl_path, 'nr_source_top_5pct_raw_by_idex',".pdf"))
+print(p)
+dev.off()
