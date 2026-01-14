@@ -17,12 +17,12 @@ p_load('arrow'
 )
 wins_vars <- function(x, pct_level = 0.01){
   if(is.numeric(x)){
-    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    #winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
     Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
   } else {x}
 }
 
-inputpath <- "E:\\panel_fr_res\\panel_smoothed.parquet"
+inputpath <- "D:\\panel_fr_res\\panel_smoothed.parquet"
 
 #inputpath <- "C:\\Users\\rapha\\Desktop\\panel_smoothed.parquet"
 #
@@ -58,7 +58,6 @@ cols_to_wins <- c("publications_raw","avg_rank_source_raw","nr_source_top_5pct_r
                   )
 
 sample_df <- ds %>%
-  
   #### Checking that there are enough observations for each individual or author :
   .[, ':='(n_inst_id_sample = n_distinct(merged_inst_id)), by = 'author_id'] %>%
   .[, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
@@ -285,7 +284,7 @@ sample_df_peers <- sample_df_peers%>%
   
 gc()
 fwrite(sample_df_peers, "E:\\panel_fr_res\\sample_df_peers.csv")
-sample_df_peers <- fread("E:\\panel_fr_res\\sample_df_peers.csv")
+sample_df_peers <- fread("D:\\panel_fr_res\\sample_df_peers.csv")
 
 to_plot <- unique(sample_df_peers[, list(author_id, Period, alpha_hat)]) %>%
   .[!is.na(Period)]
@@ -353,7 +352,7 @@ for(period in c("2003-2006", "2016-2019")){
 }
 
 saveRDS(list_es, file = "E:\\panel_fr_res\\productivity_results\\individual\\regressions_for_calibration.rds")
-list_es <- readRDS("E:\\panel_fr_res\\productivity_results\\individual\\regressions_for_calibration.rds")
+list_es <- readRDS("D:\\panel_fr_res\\productivity_results\\individual\\regressions_for_calibration.rds")
 
 fe_distrib <- rbind(as.data.table(fixef( list_es[["2003-2006"]] )$merged_inst_id_field, keep.rownames = TRUE) %>%
                       .[, period := "2003-2006"],
@@ -383,7 +382,7 @@ sample_for_calibration <- merge(sample_df_peers %>%
 
 fwrite(sample_for_calibration, "E:\\panel_fr_res\\sample_for_calibration.csv")
 
-sample_for_calibration <- fread("E:\\panel_fr_res\\sample_for_calibration.csv")
+sample_for_calibration <- fread("D:\\panel_fr_res\\sample_for_calibration.csv")
 
 p <- ggplot(sample_for_calibration)+
   geom_density(aes(x=lambda_hat + avg_alpha_i_incumbents, color = Period))+  
@@ -490,77 +489,68 @@ write.csv(
 )
 
 
+density_03_06_private <- kde2d(data_estimation[public == 0]$x, data_estimation[public == 0]$y, n = 100)
+density_03_06_public <- kde2d(data_estimation[public == 1]$x, data_estimation[public == 1]$y, n = 100)
 
-to_plot <- sample_for_calibration %>%
-  #.[incumbent == 0 ] %>%
-  .[, ':='(y = lambda_hat + avg_alpha_i_incumbents
-           ,x = alpha_hat) ]  %>%
-  .[!is.na(x) & !is.na(y)]
-
-to_plot <- to_plot %>%
-  .[(x>=cutoffs_x[[1]] & x<= cutoffs_x[[2]])
-    &(y>=cutoffs_y[[1]] & y<= cutoffs_y[[2]]) ]%>%
- .[, ':='(x = (x-min(x, na.rm =T))/(max(x, na.rm =T)-min(x, na.rm = T)),
-           y = (y-min(y, na.rm =T))/(max(y, na.rm =T)-min(y, na.rm = T)))]
-
-kd <- with(to_plot[Period == "2003-2006"], MASS::kde2d(x, y, n = 50))
-
-fig <- plot_ly(x = kd$x, y = kd$y, z = kd$z) %>% add_surface()
-
-
+fig <- plot_ly() %>%
+  add_surface(
+    x = density_03_06_private$x,
+    y = density_03_06_private$y,
+    z = density_03_06_private$z,
+    colorscale = "Blues",    # first color
+    opacity    = 0.5,
+    name       = "Model 1",
+    showscale  = FALSE
+  ) %>%
+  add_surface(
+    x = density_03_06_public$x,
+    y = density_03_06_public$y,
+    z = density_03_06_public$z,
+    colorscale = "Reds",    # first color
+    opacity    = 0.5,
+    name       = "Model 1",
+    showscale  = FALSE
+  ) %>%
+  layout(
+    legend = list(
+      orientation = "h",
+      x = 0.1,
+      y = 1.05
+    ),
+    scene = list(
+      xaxis = list(title = "x"),
+      yaxis = list(title = "y"),
+      zaxis = list(title = "f(x,y)")
+    )
+  )
 fig
+density_03_06_private_to_save <- as.data.frame(density_03_06_private$z, keep.rownames =  TRUE) %>%
+  mutate(x= row_number()) %>% 
+  pivot_longer(cols = contains('V'), names_to = "y", names_prefix = "V", values_to = 'density_private') %>%
+  mutate(y = as.integer(y))
+density_03_06_private_to_save$x <- density_03_06_private$x[density_03_06_private_to_save$x]
+density_03_06_private_to_save$y <- density_03_06_private$y[density_03_06_private_to_save$y]
 
-test_lm <- feols( x ~ y*Period*any_treatment |Period^field^incumbent^public^type
-  ,data= sample_for_calibration %>%
-    .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
-                                                                               &fusion_date == '0', "Control","Treated")]
+
+write.csv(
+  density_03_06_private_to_save,
+  "D:\\panel_fr_res\\calibration\\density_03_06_private.csv",
+  row.names = FALSE
 )
-summary(test_lm)
 
-test_lm <- feols( x ~ y*Period*any_treatment -1
-                  ,data= sample_for_calibration %>%
-                    .[, any_treatment := fifelse(acces_rce == "0" & date_first_idex == "0"
-                                                 &fusion_date == '0', "Control","Treated")]
+
+
+density_03_06_public_to_save <- as.data.frame(density_03_06_public$z, keep.rownames =  TRUE) %>%
+  mutate(x= row_number()) %>% 
+  pivot_longer(cols = contains('V'), names_to = "y", names_prefix = "V", values_to = 'density_public') %>%
+  mutate(y = as.integer(y))
+density_03_06_public_to_save$x <- density_03_06_public$x[density_03_06_public_to_save$x]
+density_03_06_public_to_save$y <- density_03_06_public$y[density_03_06_public_to_save$y]
+
+
+write.csv(
+  density_03_06_public_to_save,
+  "D:\\panel_fr_res\\calibration\\density_03_06_public.csv",
+  row.names = FALSE
 )
-summary(test_lm)
-
-test_lm <- feols( x ~ y -1
-                  ,data= sample_for_calibration
-)
-summary(test_lm)
-
-
-
-
-#data_for_x_y <- merge(all_au,
-#                                all_inst,
-#                                by = c("Period",'year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
-#gc()
-
-
-data_for_x_y_2003_2006 <- merge(all_au[Period == "2003-2006"],
-                      all_inst[Period =="2003-2006"],
-                         by = c("Period",'year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
-gc()
-data_for_x_y_2003_2006 <- data_for_x_y_2003_2006[ !is.na(x) & !is.na(y)]
-gc()
-
-data_for_x_y_2003_2006$f_x_y = predict(list_es$`2003-2006`, newdata = data_for_x_y_2003_2006 ) 
-gc()
-fwrite(data_for_x_y_2003_2006, "E:\\panel_fr_res\\full_table_for_calibration_03_06.csv")
-gc()
-
-model_03_06 <- loess(f_x_y ~ x * y , data = data_for_x_y_2003_2006)
-
-
-
-fig_03_06 <- plot_ly(x = data_for_x_y_2003_2006$x, y = data_for_x_y_2003_2006$y, z = data_for_x_y_2003_2006$f_x_y) %>% add_markers()
-fig
-
-data_for_x_y_2003_2006 <- merge(all_au[Period == "2003-2006"],
-                                all_inst[Period =="2003-2006"],
-                                by = c("Period",'field','year'), all.x=TRUE, all.y = TRUE, allow.cartesian = T)
-gc()
-
-data_for_x_y_2003_2006$f_x_y = predict(list_es$`2003-2006`, newdata = data_for_x_y_2003_2006 )
-
+  
