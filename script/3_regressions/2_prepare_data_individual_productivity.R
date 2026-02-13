@@ -47,6 +47,17 @@ ggplot(ds %>%
          .[, .(N= n_distinct(author_id)), by = c('year',"entry_year")])+
   geom_col(aes(x= year, y = N, fill = entry_year) )
 
+test <- ds %>%
+  .[year %in% 2003:2007 & (acces_rce != 0 | fusion_date != 0 | date_first_idex!=0) & (publications_raw >0)]%>%
+  .[, list(citations_raw)] %>%
+  arrange(citations_raw) %>% mutate(rank = row_number()) %>% mutate(normalized_rank = rank/max(rank))
+ggplot(test) + geom_line(aes(x=log(rank), y = log(citations_raw+1)))
+ggplot(test) + geom_point(aes(x= log(citations_raw+1), y= normalized_rank))
+
+ggplot(test) + geom_density(aes(x= log(citations_raw+1)))
+
+test_lm <- lm(log(citations_raw+1) ~ -1 +log(rank), data = test )   
+test_lm
 #nrow(unique(ds[,list(author_id)])) #313767
 
 gc()

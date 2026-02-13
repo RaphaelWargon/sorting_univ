@@ -22,7 +22,7 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
-sample_df_peers <- fread("E:\\panel_fr_res\\sample_df.csv") 
+sample_df_peers <- fread("D:\\panel_fr_res\\sample_df.csv") 
 gc()
 
 length(unique(sample_df_peers$author_id)) #265916
@@ -398,13 +398,14 @@ for(var in outcomes_idex){
   list_es_het_by_idex[[var]][['ctrl']] <- es_stag_w_ctrl
 }
 saveRDS(list_es_het_by_idex, file = "E:\\panel_fr_res\\productivity_results\\individual\\regressions_by_idex.rds")
-
+list_es_het_by_idex <- readRDS( "E:\\panel_fr_res\\productivity_results\\individual\\regressions_by_idex.rds")
 agg_stag_idex <- rbind(as.data.table(agg_effects_idex(list_es_het_by_idex[["publications_raw"]][['ctrl']], sample_df_reg, t_limit = 5)) %>% .[, var := "publications_raw"],
                        as.data.table(agg_effects_idex(list_es_het_by_idex[["citations_raw"]][['ctrl']], sample_df_reg, t_limit = 5))%>% .[, var := "citations_raw"],
                        as.data.table(agg_effects_idex(list_es_het_by_idex[["nr_source_top_5pct_raw"]][['ctrl']], sample_df_reg, t_limit = 5))%>% .[, var := "nr_source_top_5pct_raw"])
 
+
+
 idex_names_to_plot <-c('multi_idex' = "Several IDEX",
-                       
                        "idex_bordeaux" = 'Bordeaux',
                        "idex_lyon_2012" = "Lyon (2012)",      
                        "idex_muse" = "MUSE (Montpellier)"            ,
@@ -460,8 +461,45 @@ agg_stag_idex <- agg_stag_idex %>% .[!treat %in% c('acces_rce','fusion_date')] %
   .[, date := apply_map(treat, idex_dict_dates) ] %>%
   .[, label_color := case_when(treat == "multi_idex" ~"multi",
                               str_detect(treat, "annule") ~"annulee",
-                              .default = date)] 
-  
+                              .default = date)] %>%
+  left_join(unique(sample_df_reg %>%
+                     .[, list(idex, total_idex_dotation)] %>%
+                     .[, treat := idex] %>% .[, idex:=NULL]), by = 'treat') 
+
+agg_stag_idex <- agg_stag_idex %>%
+  .[,n_idex := case_when(treat == "idex_aix_marseille"~4,treat == "idex_paris_saclay"~15,treat == "idex_bordeaux"~4,treat == "idex_psl"~19,treat == "idex_paris_cite"~8,treat == "idex_sorbonne_univ"~4,treat == "idex_strasbourg"~1,treat == "idex_2_cote_azur"~8,treat == "idex_2_grenoble"~9,treat == "idex_lyon_2012"~13,treat == "idex_annulee_toulouse"~19,treat == "idex_hesam"~15,treat == "idex_annulee_lyon"~11,treat == "isite_lille"~11,treat == "idex_psi"~3,treat == "isite_next"~5,treat == "idex_paris_cite_2012"~7,treat == "idex_muse"~12,treat == "idex_future"~7,treat == "isite_e2s"~3,treat == "isite_cap_20_25"~7,treat == "isite_lorraine"~5,treat == "isite_annule_bfc"~9,treat == "idex_daum"~1,treat == "multi_idex"~7,treat == "no_idex"~0)]
+agg_stag_idex <- agg_stag_idex %>%
+  left_join(
+    sample_df_reg %>%
+      .[, .(n_au = n_distinct(author_id)), by = 'idex']%>%
+      .[, treat := idex] %>% .[, idex:=NULL], by = 'treat') 
+
+ggplot(agg_stag_idex %>%
+         .[!str_detect(treat, 'lorraine') & !(var == "nr_source_top_5pct_raw" & str_detect(treat, 'bordeaux')) 
+           & treat != 'multi_idex'])+
+  geom_point(aes(x= total_idex_dotation, y = est, color = var))
+
+ggplot(agg_stag_idex %>%
+         .[!str_detect(treat, 'lorraine') & !(var == "nr_source_top_5pct_raw" & str_detect(treat, 'bordeaux')) 
+           & treat != 'multi_idex'])+
+  geom_point(aes(x= n_idex, y = est, color = var))
+
+ggplot(agg_stag_idex %>%
+         .[!str_detect(treat, 'lorraine') & !(var == "nr_source_top_5pct_raw" & str_detect(treat, 'bordeaux')) 
+           & treat != 'multi_idex'])+
+  geom_point(aes(x= total_idex_dotation/n_idex, y = est, color = var))
+
+
+ggplot(agg_stag_idex %>%
+         .[!str_detect(treat, 'lorraine') & !(var == "nr_source_top_5pct_raw" & str_detect(treat, 'bordeaux')) 
+           & treat != 'multi_idex'])+
+  geom_point(aes(x= total_idex_dotation/n_au, y = est, color = var))
+
+
+ggplot(agg_stag_idex %>%
+         .[!str_detect(treat, 'lorraine') & !(var == "nr_source_top_5pct_raw" & str_detect(treat, 'bordeaux')) 
+           & treat != 'multi_idex'])+
+  geom_point(aes(x= n_au/n_idex, y = est, color = var))
 
 p <- ggplot(agg_stag_idex %>%
               .[var == "publications_raw"  & !str_detect(treat, 'lorraine') ])+

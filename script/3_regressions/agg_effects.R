@@ -37,7 +37,7 @@ agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
       cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
       aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
       aggte_t <- (aggte-R)/aggte_se
-      pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
+      pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
       
       
       to_sum_pre <- coefs %>% .[d == trt & t<0] 
@@ -56,7 +56,7 @@ agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
       cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
       aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
       aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
-      pval_pre = dt(aggte_t_pre, degrees_freedom(es_stag, type = 't'))
+      pval_pre = dt(aggte_t_pre, degrees_freedom(stag_model, type = 't'))
 
       etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
                                               pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab') )
@@ -130,7 +130,7 @@ agg_effects_idex <- function(stag_model, data, R = 0, t_limit = 0){
       cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
       aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
       aggte_t <- (aggte-R)/aggte_se
-      pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
+      pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
       
       
       to_sum_pre <- coefs %>% .[d == trt & t<0] 
@@ -149,7 +149,7 @@ agg_effects_idex <- function(stag_model, data, R = 0, t_limit = 0){
       cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
       aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
       aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
-      pval_pre = dt(aggte_t_pre, degrees_freedom(es_stag, type = 't'))
+      pval_pre = dt(aggte_t_pre, degrees_freedom(stag_model, type = 't'))
       
       etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
                                               pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab') )
@@ -219,7 +219,7 @@ agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t
       cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
       aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
       aggte_t <- (aggte-R)/aggte_se
-      pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
+      pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
       etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
                                               pvalue = pval, type = 'ch') )
       
@@ -261,9 +261,9 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
     #.[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
     .[ str_detect(var, '(?<=[0-9]:)[a-z_]+(?=[0-9])')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-    .[, d := fifelse(str_detect(var, 'idex|isite'),
-                     str_extract(var, '(?<=[0-9]:).*')
-                     ,d)]%>%
+    #.[, d := fifelse(str_detect(var, 'idex|isite'),
+    #                 str_extract(var, '(?<=[0-9]:).*')
+    #                 ,d)]%>%
     .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
     .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
     .[, quant := str_extract(var, '(?<=quantile_au_fe)[0-9]')] %>%
@@ -275,7 +275,9 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
   etwfe_by <- data.table(treat = '', est = 0, std = 0, t_value=0, p_value = 0, by = 0, n = 0) %>% .[treat != '']
   
   if(t_limit !=0){
-    coefs <- coefs[, t := case_when(t > t_limit ~ t_limit +1,
+    coefs <- coefs%>%
+      .[abs(t) <= t_limit +2] %>%
+      .[, t := case_when(t > t_limit ~ t_limit +1,
                                     t < -t_limit ~ -t_limit -1,
                                     .default = t)]
   }
@@ -310,7 +312,7 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
       cov_effect <- vcov_st_m[to_sum_by$var, to_sum_by$var]
       aggte_se <- sqrt(t(to_sum_by$w)%*% cov_effect %*% to_sum_by$w)[1,1]
       aggte_t <- (aggte)/aggte_se
-      pval = dt(aggte_t, degrees_freedom(es_stag, type = 't'))
+      pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
       etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = aggte, std = aggte_se, t_value = aggte_t, p_value= pval, by = val, n = n_by) )}
     if(by =='t'){
       ref = ''
