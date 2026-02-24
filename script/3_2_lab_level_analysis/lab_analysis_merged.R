@@ -7,7 +7,8 @@ p_load('arrow'
        ,'tidyverse'
        ,'binsreg',
        'DescTools',
-       'cowplot')
+       'cowplot',
+       'MatchIt')
 wins_vars <- function(x, pct_level = 0.025){
   if(is.numeric(x)){
     #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)

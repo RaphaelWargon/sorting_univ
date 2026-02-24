@@ -79,8 +79,9 @@ ds_clean <- ds %>%
                        city == "St-Malo" ~ "Saint-Malo",
                        .default  = city
   )] 
-ds_clean <- merge(ds_clean, cities %>% .[, city:=LIBELLE], by ='city')%>%
-  .[!is.na(LIBELLE)]
+
+ds_clean <- merge(ds_clean, cities %>% .[, city:=LIBELLE], by ='city', all.x = TRUE)%>%
+  .[!is.na(LIBELLE) | country == "GB"]
 
 ds_clean <- ds_clean %>%
   .[, quartile_n_au_2003 := cut(n_au_2003,
@@ -110,7 +111,11 @@ ds_clean <- ds_clean %>%
   )] %>%
   
   
-  .[, n_inst_city := n_distinct(merged_inst_id), by = 'city']
+  .[, n_inst_city := n_distinct(merged_inst_id), by = 'city'] %>%
+  .[, any_treatment := ifelse(acces_rce != "0" | date_first_idex != '0' | fusion_date != "0", 1, 0)] %>%
+  .[ any_treatment ==1 | country == "GB" ] %>%
+  .[, capital := fifelse(city == 'London' | city == 'Paris', 1, 0)] %>%
+  .[, cnrs :=  fifelse(is.na(cnrs), 0, cnrs)]
 
 
 examiner <- unique(ds_clean %>%
@@ -163,18 +168,18 @@ length(formula_elements)
 fe_min = ' |merged_inst_id + year'
 fe_large = paste0(  ' |merged_inst_id + '
                     ,'year '
-                    ,'+ type^city^year '
-                    ,'+ public^year'
-                    ,'+ ecole^year'
+                    ,'+ type^year '
+                    #,'+ public^year'
+                    #,'+ ecole^year'
                     ,'+ cnrs^year'
                     #,'+ field^year'
-                    ,'+ paris^year'
-                    #,'+ main_topic^year'
+                    ,'+ capital^year'
+                    ,'+ main_topic^year'
                     ,'+ city^year'
                     ,'+ quartile_n_au_2003^year'
                     ,'+ quartile_cit_2003^year'
                     ,'+ quartile_pub_2003^year'
-                    #,'+ quartile_top5pct_2003^year'
+                    ,'+ quartile_top5pct_2003^year'
                     #,'+ quartile_avg_pub_2003^year'
                     #,'+ n_au_2003^year'
                     #,'+ avg_publications_2003^year'
@@ -224,8 +229,8 @@ gc()
 
 for(var in outcomes){
   
-  no_ctrl_path = "D:\\panel_fr_res\\productivity_results\\labs\\no_ctrl\\"
-  ctrl_path = "D:\\panel_fr_res\\productivity_results\\labs\\ctrl\\"
+  no_ctrl_path = "D:\\panel_fr_res\\productivity_results\\labs_enfr\\no_ctrl\\"
+  ctrl_path = "D:\\panel_fr_res\\productivity_results\\labs_enfr\\ctrl\\"
   if (!file.exists(no_ctrl_path)){
     dir.create(no_ctrl_path, recursive = TRUE)
   }
