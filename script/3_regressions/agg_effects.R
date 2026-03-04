@@ -1,65 +1,118 @@
-agg_effects <- function(stag_model, data, R = 0, t_limit = 0){
+agg_effects <- function(stag_model, data, R = 0, t_limit = 0, comparison_group = 'never-treated'){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
     .[ str_detect(var, '(?<=[0-9]:)[a-z_]')]%>%
     .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
-   # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+    # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
     .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
-     .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
-   # .[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
+    .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
+    # .[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
     .[, t := as.numeric(year)-as.numeric(g)]   
   if(t_limit !=0){
     coefs <- coefs[abs(t)<= t_limit]
   }
   
   all_treatments = unique(coefs$d)
-  etwfe_agg <- data.table(treat = '', est = 0, std = 0, t = 0, pvalue = 0, pvalue_pretrend = 0, type = '') %>% .[treat != '']
+  etwfe_agg <- data.table(treat = '', est = 0, std = 0, t = 0, pvalue = 0, pvalue_pretrend = 0, type = '', comparison_group = comparison_group) %>% .[treat != '']
   for(trt in all_treatments){
     print(trt)
     tryCatch({
       
-      ##### SUNAB weights
-      to_sum <- coefs %>% .[d == trt & t>0] 
-      var = to_sum$d[[1]]
-      w <- data %>%
+      if(comparison_group == 'never-treated'){
+        to_sum <- coefs %>% .[d == trt & t>0] 
+        var = to_sum$d[[1]]
+        w <- data %>%
           .[, .(w  = .N), by = c(var, "year") ] %>%
-        .[,year := as.character(year)]
-      colnames(w) <- c('g', 'year', 'w')
-      to_sum <- merge(to_sum %>%
-                        .[, ':='(g =as.character(g),
-                                 year = as.character(year))],
-                      w%>%
-                        .[, ':='(g =as.character(g),
-                                 year = as.character(year))], by = c('g','year') ) %>%
-        .[, w := w/sum(w)]
-      aggte = sum(to_sum$w * to_sum$est)
-      cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
-      aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
-      aggte_t <- (aggte-R)/aggte_se
-      pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
+          .[,year := as.character(year)]
+        colnames(w) <- c('g', 'year', 'w')
+        to_sum <- merge(to_sum %>%
+                          .[, ':='(g =as.character(g),
+                                   year = as.character(year))],
+                        w%>%
+                          .[, ':='(g =as.character(g),
+                                   year = as.character(year))], by = c('g','year') ) %>%
+          .[, w := w/sum(w)]
+        aggte = sum(to_sum$w * to_sum$est)
+        cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
+        aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
+        aggte_t <- (aggte-R)/aggte_se
+        pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
+        
+        
+        to_sum_pre <- coefs %>% .[d == trt & t<0] 
+        w <- data %>%
+          .[, .(w  = .N), by = c(var, "year") ] %>%
+          .[,year := as.character(year)]
+        colnames(w) <- c('g', 'year', 'w')
+        to_sum_pre <- merge(to_sum_pre %>%
+                              .[, ':='(g =as.character(g),
+                                       year = as.character(year))],
+                            w%>%
+                              .[, ':='(g =as.character(g),
+                                       year = as.character(year))], by = c('g','year') ) %>%
+          .[, w := w/sum(w)]
+        aggte_pre = sum(to_sum_pre$w * to_sum_pre$est)
+        cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
+        aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
+        aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
+        pval_pre = dt(aggte_t_pre, degrees_freedom(stag_model, type = 't'))
+        
+        etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
+                                                pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab', comparison_group=comparison_group) )
+        
+        
+      }
       
       
-      to_sum_pre <- coefs %>% .[d == trt & t<0] 
-      w <- data %>%
-        .[, .(w  = .N), by = c(var, "year") ] %>%
-        .[,year := as.character(year)]
-      colnames(w) <- c('g', 'year', 'w')
-      to_sum_pre <- merge(to_sum_pre %>%
-                        .[, ':='(g =as.character(g),
-                                 year = as.character(year))],
-                      w%>%
-                        .[, ':='(g =as.character(g),
-                                 year = as.character(year))], by = c('g','year') ) %>%
-        .[, w := w/sum(w)]
-      aggte_pre = sum(to_sum_pre$w * to_sum_pre$est)
-      cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
-      aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
-      aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
-      pval_pre = dt(aggte_t_pre, degrees_freedom(stag_model, type = 't'))
-
-      etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
-                                              pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab') )
+      
+      if(comparison_group == 'not-yet-treated'){
+        to_sum <- coefs %>% .[d == trt  ] 
+        var = to_sum$d[[1]]
+        w <- data %>%
+          .[, .(w  = .N), by = c(var, "year") ] %>%
+          .[,year := as.character(year)]
+        colnames(w) <- c('g', 'year', 'w')
+        to_sum <- merge(to_sum %>%
+                          .[, ':='(g =as.character(g),
+                                   year = as.character(year))],
+                        w%>%
+                          .[, ':='(g =as.character(g),
+                                   year = as.character(year))], by = c('g','year') ) %>%
+          .[, treat_status := ifelse(t >=-1, 1, -1)] %>%
+          .[, w := as.numeric(w)] %>%
+          .[, treat_status := as.numeric(treat_status)] %>%
+          .[, w := treat_status*w/sum(w), by ="treat_status"] 
+        aggte = sum(to_sum$w * to_sum$est)
+        cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
+        aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
+        aggte_t <- (aggte-R)/aggte_se
+        pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
+        
+        
+        to_sum_pre <- coefs %>% .[d == trt & t<=-1] 
+        w <- data %>%
+          .[, .(w  = .N), by = c(var, "year") ] %>%
+          .[,year := as.character(year)]
+        colnames(w) <- c('g', 'year', 'w')
+        to_sum_pre <- merge(to_sum_pre %>%
+                              .[, ':='(g =as.character(g),
+                                       year = as.character(year))],
+                            w%>%
+                              .[, ':='(g =as.character(g),
+                                       year = as.character(year))], by = c('g','year') ) %>%
+          .[, w := ifelse(t >=-1, -1, 1)*w/sum(w)]
+        aggte_pre = sum(to_sum_pre$w * to_sum_pre$est)
+        cov_effect_pre <- vcov(stag_model)[to_sum_pre$var, to_sum_pre$var]
+        aggte_se_pre <- sqrt(t(to_sum_pre$w)%*% cov_effect_pre %*% to_sum_pre$w)[1,1]
+        aggte_t_pre <- (aggte_pre-R)/aggte_se_pre
+        pval_pre = dt(aggte_t_pre, degrees_freedom(stag_model, type = 't'))
+        
+        etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
+                                                pvalue = pval, pvalue_pretrend = pval_pre, type = 'sunab', comparison_group=comparison_group) )
+        
+        
+      }
       
       
       
@@ -170,7 +223,7 @@ agg_effects_idex <- function(stag_model, data, R = 0, t_limit = 0){
 
 
 
-agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t_limit = 0){
+agg_effects_ch <- function(stag_model, data, t_switch = 0, offset = 2, R = 0, t_limit = 0){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
@@ -205,19 +258,61 @@ agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t
                         .[, ':='(g =as.character(g),
                                  year = as.character(year))], by = c('g','year') ) 
       N_d_D = sum(w[year==g]$n)
-      to_sum <- to_sum %>%
-        .[, w := case_when(t == t_switch ~  1/N_d_D,
-                          t == t_comp ~ -1/N_d_D, ##switch
-                          .default = 0
-                          ), by ='year'] %>%
-        .[, ':='(n_not_yet_treated=sum( (as.numeric(t) <0 )*n ),
-                 plus = sum(t ==t_switch ),
-                 minus = sum(t == t_comp)), by = 'g'] %>%
-      .[, w := ifelse(t<0, - ( plus - minus ) * 1/N_d_D * n/n_not_yet_treated ,w) ] 
+      all_switch_years <- as.numeric(unique(to_sum$g))
+      all_switch_years <- all_switch_years[all_switch_years != max(all_switch_years)]
+      to_sum_did_plus <- to_sum %>%
+        .[, switch_years := sapply(get("g"), function(x) {
+          # Filter for years <= x and paste them
+          list_switches = all_switch_years[all_switch_years <= x]
+          return(paste0(list_switches, collapse = ','))
+        }) ] %>%
+        .[, .(switch = unlist(tstrsplit(switch_years, ','))), by = c(colnames(to_sum))]%>%
+        .[, (c('switch','g','year')) := lapply(.SD, as.numeric), .SDcols = c('switch','g','year')] %>%
+        .[year ==switch + t_switch+offset | year == switch-offset] %>%
+        .[, switcher := ifelse(g == switch, 1, 0)] %>%
+        .[, weight_sign := case_when(switcher == 1 & year == switch + t_switch + offset ~ 1,
+                                     switcher == 1 & year == switch- offset ~ -1,
+                                     switcher == 0 & year == switch+ t_switch + offset ~ -1,
+                                     switcher == 0 & year == switch- offset ~ 1
+                                     )] %>%
+        .[, weight_sign := as.numeric(weight_sign)] %>%
+        .[, n := min(as.numeric(n)), by = c('g', 'switch')] %>%
+        .[, w_in_did_plus_t :=as.numeric(n)] %>%
+        .[order(switch) ] %>%
+        .[, w_in_did_plus_t := weight_sign*2*w_in_did_plus_t/sum(w_in_did_plus_t), by = c('switcher', 'switch')] %>%
+        .[, n_switchers := max(n * as.numeric(switcher == 1)), by = 'switch'] %>%
+        .[, w_did_plus_t := n_switchers/N_d_D ] %>%
+        .[, w := w_did_plus_t *w_in_did_plus_t ]
+
       
-      aggte = sum(to_sum$w * to_sum$est)
-      cov_effect <- vcov(stag_model)[to_sum$var, to_sum$var]
-      aggte_se <- sqrt(t(to_sum$w)%*% cov_effect %*% to_sum$w)[1,1]
+      to_sum_did_minus <- to_sum %>%
+        .[, switch_years := sapply(get("g"), function(x) {
+          # Filter for years <= x and paste them
+          list_switches = all_switch_years[all_switch_years <= x]
+          return(paste0(list_switches, collapse = ','))
+        }) ] %>%
+        .[, .(switch = unlist(tstrsplit(switch_years, ','))), by = c(colnames(to_sum))]%>%
+        .[, (c('switch','g','year')) := lapply(.SD, as.numeric), .SDcols = c('switch','g','year')] %>%
+        .[year ==switch + t_switch+offset | year == switch + t_switch+offset+1] %>%
+        .[, switcher := ifelse(g == switch, 1, 0)] %>%
+        .[, weight_sign := case_when(switcher == 1 & year == switch + t_switch + offset ~ 1,
+                                     switcher == 1 & year == switch + t_switch+offset+1 ~ -1,
+                                     switcher == 0 & year == switch+ t_switch + offset ~ -1,
+                                     switcher == 0 & year == switch + t_switch+offset+1 ~ 1
+        )] %>%
+        .[, weight_sign := as.numeric(weight_sign)] %>%
+        .[, n := min(as.numeric(n)), by = c('g', 'switch')] %>%
+        .[, w_in_did_plus_t :=as.numeric(n)] %>%
+        .[order(switch) ] %>%
+        .[, w_in_did_plus_t := weight_sign*2*w_in_did_plus_t/sum(w_in_did_plus_t), by = c('switcher', 'switch')] %>%
+        .[, n_switchers := max(n * as.numeric(switcher == 1)), by = 'switch'] %>%
+        .[, w_did_plus_t := n_switchers/N_d_D ]%>%
+        .[, w := w_did_plus_t *w_in_did_plus_t ]
+      
+      to_sum_full <- rbind(to_sum_did_plus, to_sum_did_minus)
+      aggte = sum(to_sum_full$w * to_sum_full$est)
+      cov_effect <- vcov(stag_model)[to_sum_full$var, to_sum_full$var]
+      aggte_se <- sqrt(t(to_sum_full$w)%*% cov_effect %*% to_sum_full$w)[1,1]
       aggte_t <- (aggte-R)/aggte_se
       pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
       etwfe_agg = rbind(etwfe_agg, data.table(treat = trt, est = aggte, std = aggte_se, t = aggte_t,
@@ -251,7 +346,7 @@ agg_effects_ch <- function(stag_model, data, t_switch = 1, t_comp = -1, R = 0, t
 
 
 
-agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
+agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0, comparison_group= "never-treated"){
   coefs <- as.data.table(stag_model$coefficients, keep.rownames = TRUE)
   colnames(coefs) <-c("var",'est')
   coefs <- coefs %>%
@@ -272,9 +367,9 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
   #coefs$treat <- paste0(coefs$treat, '_', by, coefs[[by]])
   vcov_st_m <- vcov(stag_model)
   all_treatments = unique(coefs$d)
-  etwfe_by <- data.table(treat = '', est = 0, std = 0, t_value=0, p_value = 0, by = 0, n = 0) %>% .[treat != '']
+  etwfe_by <- data.table(treat = '', est = 0, std = 0, t_value=0, p_value = 0, by = 0, n = 0, comparison_group ="") %>% .[treat != '']
   
-  if(t_limit !=0){
+  if(t_limit !=0 ){
     coefs <- coefs%>%
       .[abs(t) <= t_limit +2] %>%
       .[, t := case_when(t > t_limit ~ t_limit +1,
@@ -282,14 +377,13 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
                                     .default = t)]
   }
   
-  if(by !='t'){
+  if(by !='t' & comparison_group == "never-treated"){
     coefs <- coefs[t >0]
   
   }
 
   for(trt in all_treatments){
     print(trt)
-    start_time_trt = Sys.time()
     to_sum <- coefs %>% .[d == trt] 
     var = to_sum$d[[1]]
     w <- data %>%
@@ -303,17 +397,38 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
                       .[, g :=as.character(g)], by = c('g','year') )
     all_values=  unique(to_sum[[by]])
     for(val in unique(to_sum[[by]])){
-      #print(val)
+      print(val)
+      if(comparison_group =="never-treated"){
       to_sum_by = to_sum[to_sum[[by]] == val] 
       n_by = sum(to_sum_by$w)
       to_sum_by = to_sum_by %>%
         .[, w:= w/sum(w)]
+      }
+      if(comparison_group == "not-yet-treated"){
+        if(by == "t")
+        {      
+        to_sum_by = to_sum[to_sum[[by]] < min(val, -1) | to_sum[[by]]== val ]
+        to_sum_by$treat_status = ifelse(to_sum_by[[by]]== val, 1, -1)
+        n_by = sum(to_sum_by$w)
+        to_sum_by = to_sum_by %>%
+          .[, ':='(w=as.numeric(w), treat_status = as.numeric(treat_status))] %>%
+          .[, w:= treat_status * w/sum(w), by = treat_status]
+        }
+        else{
+          to_sum_by = to_sum[(to_sum[[by]] < val &  to_sum[['t']]<-1) | (to_sum[[by]] == val & to_sum[["t"]] >-1) ] 
+          n_by = sum(to_sum_by$w)
+          to_sum_by$treat_status = ifelse(to_sum_by[[by]]== val, 1, -1)
+          to_sum_by = to_sum_by %>%
+            .[, ':='(w=as.numeric(w), treat_status = as.numeric(treat_status))] %>%
+            .[, w:= treat_status * w/sum(w), by = treat_status]
+        }
+      }
       aggte = sum(to_sum_by$w * to_sum_by$est)
       cov_effect <- vcov_st_m[to_sum_by$var, to_sum_by$var]
       aggte_se <- sqrt(t(to_sum_by$w)%*% cov_effect %*% to_sum_by$w)[1,1]
       aggte_t <- (aggte)/aggte_se
       pval = dt(aggte_t, degrees_freedom(stag_model, type = 't'))
-      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = aggte, std = aggte_se, t_value = aggte_t, p_value= pval, by = val, n = n_by) )}
+      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = aggte, std = aggte_se, t_value = aggte_t, p_value= pval, by = val, n = n_by, comparison_group = comparison_group) )}
     if(by =='t'){
       ref = ''
       for( el in min(all_values):max(all_values)){
@@ -323,7 +438,7 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
       }
       print(ref)
       if(ref != ''){
-      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = 0, std = NA, t_value = 0, p_value= 0, by = as.numeric(ref), n = n_by) )}
+      etwfe_by = rbind(etwfe_by, data.table(treat = trt, est = 0, std = NA, t_value = 0, p_value= 0, by = as.numeric(ref), n = n_by, comparison_group = comparison_group) )}
     }
   }
   
@@ -337,7 +452,7 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0){
   }
   
   
-  colnames(etwfe_by) <- c('treatment','est','std', 't_value','p_value', by, 'n')
+  colnames(etwfe_by) <- c('treatment','est','std', 't_value','p_value', by, 'n', 'comparison_group')
   return(etwfe_by)
 }
 
@@ -363,7 +478,8 @@ make_stargazer_like_table_dt <- function(dt,
   stopifnot(requireNamespace("data.table", quietly = TRUE))
   if (!data.table::is.data.table(dt)) dt <- data.table::as.data.table(dt)
   
-  req <- c("treat","est","std","t","pvalue","pvalue_pretrend","type","var","ctrl")
+  req <- c("treat","est","std","t","pvalue",#"pvalue_pretrend",
+           "type","var","ctrl")
   miss <- setdiff(req, names(dt))
   if (length(miss)) stop("Missing required columns: ", paste(miss, collapse = ", "))
   
@@ -419,8 +535,9 @@ make_stargazer_like_table_dt <- function(dt,
   W_est <- data.table::dcast(dt, treat ~ model_id, value.var = "est")
   W_se  <- data.table::dcast(dt, treat ~ model_id, value.var = "std")
   W_p   <- data.table::dcast(dt, treat ~ model_id, value.var = "pvalue")
+  if("pvalue_pretrend" %in% names(dt)){
   W_pr  <- data.table::dcast(dt, treat ~ model_id, value.var = "pvalue_pretrend")
-  
+  }
   ensure_cols <- function(W) {
     if (!("treat" %in% names(W))) W[, treat := NA_character_]
     missing <- setdiff(model_ids, setdiff(names(W), "treat"))
@@ -431,7 +548,9 @@ make_stargazer_like_table_dt <- function(dt,
   data.table::setDT(W_est); W_est <- ensure_cols(W_est)
   data.table::setDT(W_se ); W_se  <- ensure_cols(W_se)
   data.table::setDT(W_p  ); W_p   <- ensure_cols(W_p)
-  data.table::setDT(W_pr ); W_pr  <- ensure_cols(W_pr)
+  if("pvalue_pretrend" %in% names(dt)){
+    data.table::setDT(W_pr ); W_pr  <- ensure_cols(W_pr)
+  }
   
   # ---- Stars matrix (same shape as W_est minus 'treat') ----
   make_star <- function(p) {
@@ -458,7 +577,9 @@ make_stargazer_like_table_dt <- function(dt,
     e   <- W_est[treat == tr, ..model_ids]
     se  <- W_se [treat == tr, ..model_ids]
     p   <- W_p  [treat == tr, ..model_ids]
+    if("pvalue_pretrend" %in% names(dt)){
     pr  <- W_pr [treat == tr, ..model_ids]
+  }
     st  <- W_star[treat == tr, ..model_ids]
     
     # estimates with stars appended
@@ -477,7 +598,9 @@ make_stargazer_like_table_dt <- function(dt,
       paste0(line("Std. error",  paste0('(',to_vec(se), ')')), '\\\\'),
       "\\addlinespace",
       paste0(line("\\textit{p-value}",     paste0('\\textit{', to_vec(p), '}')), '\\\\'),
-      paste0(line("\\textit{Pretrend p}",  paste0('\\textit{', to_vec(pr), '}')), '\\\\'),
+      ifelse("pvalue_pretrend" %in% names(dt),
+      paste0(line("\\textit{Pretrend p}",  paste0('\\textit{', to_vec(pr), '}')), '\\\\'), 
+      ''),
       "\\addlinespace"
     )
   }
