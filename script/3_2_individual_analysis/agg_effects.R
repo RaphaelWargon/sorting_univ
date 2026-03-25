@@ -729,3 +729,41 @@ idex_dict_dates = c(
     2012,
   "multi_idex"= 2011        ,'no_idex'=0
 )
+
+
+
+dict_vars <- c('acces_rce'= 'Administrative autonomy',
+               'date_first_idex'='Received an IDEX',
+               'fusion_date'= "Merged establishment",
+               "publications_raw" = 'Publications',
+               "citations_raw"='Citations',
+               "publications" = 'Publications',
+               "citations"='Citations',
+               "avg_publications" = 'Average publications',
+               "avg_citations"='Average citations',
+               "n_au" = "Number of researchers",
+               "nr_source_btm_50pct_raw"="Bottom 50% journal publications",
+               "nr_source_mid_40pct_raw"="Middle 40% journal publications",
+               "nr_source_top_20pct_raw"="Top 20% journal publications", 
+               "nr_source_top_10pct_raw" ="Top 10% journal publications", 
+               "nr_source_top_5pct_raw" ="Top 5% journal publications",
+               "nr_source_btm_50pct"="Bottom 50% journal publications",
+               "nr_source_mid_40pct"="Middle 40% journal publications",
+               "nr_source_top_20pct"="Top 20% journal publications", 
+               "nr_source_top_10pct" ="Top 10% journal publications", 
+               "nr_source_top_5pct" ="Top 5% journal publications",
+               "type" = 'Institution Type',
+               "city"=  'City',
+               'cnrs'='CNRS',
+               'public'='Public Status',
+               'ecole'='Grande Ecole status',
+               'main_topic'='Main field',
+               "|merged_inst_id"= 'Institution',
+               " |merged_inst_id"= 'Institution',
+               "|merged_inst_id_field"= 'Institution $\\times$ field',
+               "| merged_inst_id_field"= 'Institution $\\times$ field',
+               " | merged_inst_id_field"= 'Institution $\\times$ field',
+               "author_id"= 'Author',              "year"= 'Year',  "entry_year"= 'Entry year',
+               "field"= 'Field',              "gender"= 'Gender',
+               " |merged_inst_id"= 'Institution $\\times$ field'
+)

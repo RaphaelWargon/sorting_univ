@@ -103,16 +103,23 @@ agg_etwfe_het <- function(stag_model, data, by = 't', t_limit = 0){
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)]
     }
-    else{
+    if(str_detect(trt, '_e')){
       w <- data %>%
-        .[merged_inst_id_s != 'abroad' & merged_inst_id_r != 'abroad'] %>%
+        .[merged_inst_id_s == 'entry' ] %>%
+        .[, .(w  = .N), by = c(var, "year") ] %>%
+        .[,year := as.character(year)]
+    }
+    if(!str_detect(trt, '_a') & !str_detect(trt, '_e')) {
+      w <- data %>%
+        .[merged_inst_id_s != 'abroad' & merged_inst_id_r != 'abroad' & merged_inst_id_s != 'entry'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>%
         .[,year := as.character(year)] 
     }
     colnames(w) <- c('g', 'year', 'w')
     to_sum <- merge(to_sum %>%
                       .[,year:=as.character(year)] %>%
-                      .[, g:=as.character(g)],w %>%
+                      .[, g:=as.character(g)],
+                    w %>%
                       .[, g :=as.character(g)], by = c('g','year') )
     all_values=  unique(to_sum[[by]])
     for(val in all_values){
@@ -165,24 +172,28 @@ dict_vars <- c("movers_w"                  =     'Total flows',
                "movers_w_own_entrant_r"    =     'Returning to entry institution',
                "movers_w_own_entrant_s"    =     'Exiting from entry institution',
                "movers_w_foreign_entrant"  =     'Foreign entrant flows', 
-               "acces_rce"= "University autonomy",
+               "acces_rce"= "Administrative autonomy",
                "date_first_idex"= "Received an IDEX",
                "fusion_date"= "Merged establishment",
                
-               'delta_acces_rce' = "University autonomy, departures",
-               'delta_acces_rce_a' = "University autonomy, departures abroad",
-               'gamma_acces_rce' = "University autonomy, arrivals",
-               'gamma_acces_rce_a' = "University autonomy, arrivals from abroad",
+               'delta_acces_rce' = "Administrative autonomy, departures",
+               'delta_acces_rce_a' = "Administrative autonomy, departures abroad",
+               'delta_acces_rce_a' = "Administrative autonomy, departures abroad",
+               'gamma_acces_rce' = "Administrative autonomy, arrivals",
+               'gamma_acces_rce_a' = "Administrative autonomy, arrivals from abroad",
+               'gamma_acces_rce_e' = "Administrative autonomy, entry",
                
                'delta_date_first_idex' =   "Received an IDEX, departures",
                'delta_date_first_idex_a' = "Received an IDEX, departures abroad",
                'gamma_date_first_idex' =   "Received an IDEX, arrivals",
                'gamma_date_first_idex_a' = "Received an IDEX, arrivals from abroad",
+               'gamma_date_first_idex_e' = "Received an IDEX, entry",
                
                'delta_fusion_date' =   "Merged establishment, departures",
                'delta_fusion_date_a' = "Merged establishment, departures abroad",
                'gamma_fusion_date' =   "Merged establishment, arrivals",
                'gamma_fusion_date_a' = "Merged establishment, arrivals from abroad",
+               'gamma_fusion_date_e' = "Merged establishment, entry",
                
                '| year' = 'Year',
                'merged_inst_id_r' = 'Destination institution',
@@ -325,7 +336,7 @@ make_stargazer_like_table_dt <- function(dt,
     to_vec <- function(D) if (nrow(D) == 0) rep("", length(model_ids)) else fmt_num(unlist(D))
     
     lhs <- latexify(unname(treat_map[[tr]] %||% tr))
-    lhs <- paste0('\\textbf{', str_to_sentence(str_replace(lhs,  'University autonomy, |Received IDEX, |Merged establishment, ', '' )),'}')
+    lhs <- paste0('\\textbf{', str_to_sentence(str_replace(lhs,  'Administrative autonomy, |Received IDEX, |Merged establishment, ', '' )),'}')
     line  <- function(lhs, vec) paste(lhs, paste(vec, collapse = " & "), sep = " & ")
     
     c(
