@@ -129,14 +129,14 @@ sample_df_reg <- sample_df_reg %>%
   .[, n_lt_global := n_distinct(author_id), by = c('merged_inst_id', 'year')] %>%
   .[, prod_inst_2003:= max(sum(citations_reweight)/n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id'] %>%
   .[, size_2003:= max(n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id'] %>%
-  .[, prod_au_2003 := max(citations_reweight * as.numeric( year == 2003 )), by = 'author_id']
+  .[, prod_au_first_5_y := max(citations_reweight * as.numeric( as.numeric(as.character(year)) <=entry_year + 4 )), by = 'author_id']
 
 
 sample_df_reg <- sample_df_reg %>%
   .[, ':='(prod_inst_n_tile = cut(prod_inst_2003, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, prod_inst_2003)])$prod_inst_2003,
                                                                   probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
   ] %>%
-  .[, ':='(prod_au_n_tile = cut(prod_au_2003, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, prod_au_2003)])$prod_au_2003,
+  .[, ':='(prod_au_n_tile = cut(prod_au_first_5_y, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, prod_au_first_5_y)])$prod_au_first_5_y,
                                                                   probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
   ] %>%
   .[, ':='(size_n_tile = cut(size_2003, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, size_2003)])$size_2003,
@@ -205,8 +205,8 @@ fe_large = paste0(  ' | merged_inst_id_field + '
                     ,'+ entry_year^field^year '
                     ,'+ size_n_tile^year'
                     ,'+ prod_inst_n_tile^year'
-                    #,'+ prod_au_n_tile^year'
-                    #,'+ city^year'
+                    ,'+ prod_au_n_tile^year'
+                    ,'+ city^year'
                     ,'+ n_inst_y^year'
                     
 )

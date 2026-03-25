@@ -210,9 +210,9 @@ fe_large = paste0(  ' | merged_inst_id_field + '
                     ,'+ cnrs^year'
                     ,'+ field^year'
                     ,'+ entry_year^year '
-                    ,'+ prod_au_n_tile^year'
-                    ,'+ prod_inst_n_tile^year'
-                    ,'+ size_n_tile^year'
+                    #,'+ prod_au_n_tile^year'
+                    #,'+ prod_inst_n_tile^year'
+                    #,'+ size_n_tile^year'
                     ,'+ REG^year'
                     #,'+ n_inst_y^year'
                     
@@ -930,8 +930,13 @@ for(var in outcomes){
 
 # heterogeneity by domain --------------------------------------
 
-no_ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\heterogeneity\\domain\\ctrl\\"
-ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\heterogeneity\\domain\\no_ctrl\\"
+#no_ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\heterogeneity\\domain\\ctrl\\"
+#ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\heterogeneity\\domain\\no_ctrl\\"
+
+no_ctrl_path = "C:\\Users\\rapha\\Desktop\\productivity_results\\individual\\heterogeneity\\domain\\ctrl\\"
+ctrl_path = "C:\\Users\\rapha\\Desktop\\productivity_results\\individual\\heterogeneity\\domain\\no_ctrl\\"
+
+
 if (!file.exists(no_ctrl_path)){
   dir.create(no_ctrl_path, recursive = TRUE)
 }
@@ -951,9 +956,9 @@ for(var in outcomes){
     .[, ':='(y_lt = sum(y)), by = c('merged_inst_id',"field", 'year')] %>%
     .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
   
-  for(domain_var in c(1,2,3,4)){
+  for(domain_var in c("1","2","3","4")){
     
-    list_es_het_by_domain[[var]][[as.character(domain)]] <- list()
+    list_es_het_by_domain[[var]][[as.character(domain_var)]] <- list()
     start_time <- Sys.time()
     es_stag <- feols(formula_no_ctrl
                      , data = sample_df_reg %>% .[str_detect(domain, domain_var)]
@@ -963,7 +968,7 @@ for(var in outcomes){
     time_taken <- Sys.time() - start_time
     print(time_taken)
     gc()
-    list_es_het_by_domain[[var]][[as.character(domain)]] [['no_ctrl']] <- es_stag
+    list_es_het_by_domain[[var]][[as.character(domain_var)]] [['no_ctrl']] <- es_stag
     
     start_time <- Sys.time()
     es_stag_w_ctrl <- feols(formula_ctrl,
@@ -974,27 +979,36 @@ for(var in outcomes){
     time_taken <- Sys.time()-start_time
     gc()
     print(time_taken)
-    list_es_het_by_domain[[var]][[as.character(domain)]] [['ctrl']] <- es_stag_w_ctrl
+    list_es_het_by_domain[[var]][[as.character(domain_var)]] [['ctrl']] <- es_stag_w_ctrl
   }
 }
 
 saveRDS(list_es_het_by_domain, file = "D:\\panel_fr_res\\productivity_results\\individual\\all_regressions_by_domain.rds")
 
+agg_stag_domain <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, pvalue_pretrend= 0, type = '',  comparison_group = "", var = '', ctrl = '') %>% .[treat != '']
+agg_stag_domain_by_t <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0, n = '', comparison_group = "", var = '',  ctrl = '') %>% .[treatment != '']
+agg_stag_domain_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0, g = 0, n = '', comparison_group = "", var = '',  ctrl = '') %>% .[treatment != '']
+
+dict_vars <- c(dict_vars,
+               '1' = 'Life Sciences',
+               '2' = 'Social Sciences',
+               '3' = "Physical Sciences",
+               "4" = 'Health Sciences')
 for(var in outcomes){
-  for(domain in unique(sample_df_reg[!is.na(domain_n_tile)]$domain_n_tile)){
+  for(domain_var in c('1',"2","3",'4')){
     
-    agg_stag_no_ctrl <- agg_effects(list_es_het_by_domain[[var]][[as.character(domain)]][['no_ctrl']], sample_df_reg, t_limit = 5)%>%
+    agg_stag_domain_no_ctrl <- agg_effects(list_es_het_by_domain[[var]][[domain_var]][['no_ctrl']], sample_df_reg, t_limit = 5)%>%
       .[, var := var] %>% .[, ctrl := 'None']
-    agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
-    agg_stag_by_t_no_ctrl <- agg_effect_het(list_es_het_by_domain[[var]][[as.character(domain)]][['no_ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
+    agg_stag_domain <- rbind(agg_stag_domain, agg_stag_domain_no_ctrl)
+    agg_stag_domain_by_t_no_ctrl <- agg_effect_het(list_es_het_by_domain[[var]][[domain_var]][['no_ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
       .[, var := var] %>% .[, ctrl := 'None']
-    agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_no_ctrl)
-    for(treat in unique(agg_stag_by_t_no_ctrl$treatment)){
-      p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat)])+
+    agg_stag_domain_by_t <- rbind(agg_stag_domain_by_t, agg_stag_domain_by_t_no_ctrl)
+    for(treat in unique(agg_stag_domain_by_t_no_ctrl$treatment)){
+      p <- ggplot(agg_stag_domain_by_t_no_ctrl %>% .[treatment %in% c(treat)])+
         geom_point(aes(x= t, y = est))+
         geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
         geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
-        labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+        labs(title = paste0('Treatment: ', dict_vars[[treat]], ', ', dict_vars[[domain_var]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
         theme_bw()
       pdf(paste0(no_ctrl_path, var, '_', treat, '_domain_', as.character(domain_var) , "_", 'by_t',".pdf"))
       print(p)
@@ -1005,20 +1019,20 @@ for(var in outcomes){
     
     
     
-    agg_stag_ctrl <- agg_effects(list_es_het_by_domain[[var]][[as.character(domain)]][['ctrl']], sample_df_reg, t_limit = 5)%>%
+    agg_stag_domain_ctrl <- agg_effects(list_es_het_by_domain[[var]][[as.character(domain_var)]][['ctrl']], sample_df_reg, t_limit = 5)%>%
       .[, var := var] %>% .[, ctrl := fe_large]
     
-    agg_stag <- rbind(agg_stag, agg_stag_ctrl)
-    agg_stag_by_t_ctrl <- agg_effect_het(list_es_het_by_domain[[var]][[as.character(domain)]][['ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
+    agg_stag_domain <- rbind(agg_stag_domain, agg_stag_domain_ctrl)
+    agg_stag_domain_by_t_ctrl <- agg_effect_het(list_es_het_by_domain[[var]][[as.character(domain_var)]][['ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
       .[, var := var] %>% .[, ctrl := fe_large]
-    agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_ctrl)
+    agg_stag_domain_by_t <- rbind(agg_stag_domain_by_t, agg_stag_domain_by_t_ctrl)
     
-    for(treat in unique(agg_stag_by_t_ctrl$treatment)){
-      p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat)])+
+    for(treat in unique(agg_stag_domain_by_t_ctrl$treatment)){
+      p <- ggplot(agg_stag_domain_by_t_ctrl %>% .[treatment %in% c(treat)])+
         geom_point(aes(x= t, y = est))+
         geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
         geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
-        labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+        labs(title = paste0('Treatment: ', dict_vars[[treat]], ', ', dict_vars[[domain_var]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
         theme_bw()
       pdf(paste0(ctrl_path,var, '_', treat ,'_domain_', as.character(domain_var) , "_", 'by_t',".pdf"))
       print(p)

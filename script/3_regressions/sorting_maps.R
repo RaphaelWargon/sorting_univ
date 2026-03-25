@@ -12,7 +12,7 @@ map_path_dpt <- "C:\\Users\\common\\misc\\departements-20180101-shp\\departement
 map_dpt <- read_sf(map_path_dpt)
 map$city = map$nom
 
-test <- merge(unique(sample[,list(city)]),
+test <- merge(unique(sample_df_reg[,list(city)]),
             as.data.table(map)[, list(city)][, matched := 1], all.x=T)
 
 test[,.N, by = 'matched']
@@ -20,7 +20,7 @@ test2 <- test[is.na(matched)]
 
 as.data.table(map)[str_detect(nom, 'Clichy')][, list(nom)]
 
-to_plot_map <- merge(sample %>%
+to_plot_map <- merge(sample_df_reg %>%
       .[, city := case_when(city =='Sophia Antipolis' ~"Antibes",
                             city =='Cergy-Pontoise' ~"Cergy",
                             city =='Clichy' ~"Clichy-sous-Bois",
