@@ -457,6 +457,306 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0, comparison_g
 }
 
 
+
+compute_all_estimates <- function(outcomes = NULL,
+                                  data,
+                                  id_vars = c('author_id','merged_inst_id_domain'),
+                                  trend_controls = NULL,
+                                  w_matching = TRUE,
+                                  matching_variables = c('entry_year','domain'),
+                                  plot_event_study = FALSE,
+                                  save_event_study = FALSE,
+                                  save_path = '',
+                                  type = 'fepois'
+){
+  list_es_all = list()
+
+  units <- unique(data[, ..unit_cols]) %>%
+    .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)]
+  print(table(units[["treat"]]))
+  
+  formula_ctrl <- paste0( 'y ~ y_minus_i_lt + ',  
+                          paste0(formula_elements, collapse= '+'), 
+                          '|  year + ',
+                          paste0(id_vars, collapse = '+')
+  )
+  if(!is.null(trend_controls)){
+    formula_ctrl <- paste0(formula_ctrl, "+",
+                           paste0(paste0(trend_controls, '^year'), collapse = '+'))
+  }
+  
+  if(w_matching == TRUE){
+    
+    formula_ctrl <- paste0(formula_ctrl,  '+ subclass^year')
+    
+    matching_fml = paste0('treat ~ ', paste0(matching_variables, collapse = "+"))
+    match_units <- matchit(as.formula(matching_fml)
+                           ,data = units
+                           ,method = "exact")
+    matched_units <- match.data(match_units)
+    print(table(matched_units[["treat"]]))
+    
+    to_keep_in_matched_units <- c(id_vars, "subclass")
+    
+    matched_units <- matched_units %>%
+      .[, ..to_keep_in_matched_units]
+    
+  }
+  for(var in outcomes ){
+    
+    list_es_all[[var]] <- list()
+    
+    data$y <- data[[var]]
+    
+    data <- data %>%
+      .[, ':='(y_lt = sum(y)), by = id_vars] %>%
+      .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
+    
+    if(w_matching == TRUE){
+      df_reg <- merge(data, matched_units, by = id_vars)
+    }
+    else{df_reg <- data}
+    
+    start_time <- Sys.time()
+    
+    if(type == "fepois"){
+      es_stag_w_ctrl <- fepois(as.formula(formula_ctrl),
+                               , data = df_reg 
+                               ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
+                               ,cluster = id_vars
+      ) }
+    if(type == 'feols'){
+      es_stag_w_ctrl <- feols(as.formula(formula_ctrl),
+                              , data = df_reg 
+                              ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
+                              ,cluster = id_vars
+      ) 
+      
+    }
+    time_taken <- Sys.time()-start_time
+    gc()
+    print(time_taken)
+    list_es_all[[var]][['regression']] <- es_stag_w_ctrl
+    
+    list_es_all[[var]][['table_agg']] <- agg_effects(es_stag_w_ctrl, df_reg, t_limit = 5)%>%
+      .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+    list_es_all[[var]][['table_agg_by_t']] <- agg_effect_het(es_stag_w_ctrl, df_reg, by  ='t', t_limit = 5)%>%
+      .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+    list_es_all[[var]][['table_agg_by_g']] <- agg_effect_het(es_stag_w_ctrl, df_reg, by  ='g')%>%
+      .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+    
+    for_pre_mean <- df_reg 
+    if(type == "fepois"){
+      for(id_var in id_vars){
+        for_pre_mean <- for_pre_mean[! (for_pre_mean[[id_var]] %in% es_stag_w_ctrl$fixef_removed[[id_var]]) ]
+      }}
+    
+    list_es_all[["pre_mean"]] <- round(mean((for_pre_mean[(for_pre_mean[["year"]]<= for_pre_mean[[treat]] | for_pre_mean[[treat]] == 0)])[[var]], na.rm =T),2)
+    list_es_all[["n_obs"]] <- es_stag_w_ctrl$nobs
+    if(type == "fepois"){
+      list_es_all[[var]][["pseudo_r2"]] <- round(es_stag_w_ctrl$pseudo_r2, 5)
+    }
+    if(type == "feols"){ list_es_all[[var]][["pseudo_r2"]]<- round(r2(es_stag_w_ctrl)[['r2']], 5)}
+    
+    for(treat in unique(list_es_solo[[treat]][[var]][['table_agg']]$treat)){
+    event_study_plot <- ggplot(list_es_all[[var]][['table_agg_by_t']])+
+      geom_point(aes(x= t, y = est))+
+      geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+      geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+      theme_bw()
+    if(plot_event_study == TRUE){
+      print(event_study_plot)}
+    if(save_event_study == TRUE){
+      
+      if(w_matching == TRUE){
+        save_path_event_study <- paste0(save_path, '\\', treat, '\\match_',paste0(sort(matching_variables), collapse = '_') ,'\\fe_',paste0( sort(trend_controls), collapse = "_"), '\\' )
+        
+      }
+      else{
+        save_path_event_study <- paste0(save_path, '\\', treat, '\\fe_', paste0( sort(trend_controls), collapse = "_"), '\\' )
+      }
+      if (!file.exists(save_path_event_study)){
+        dir.create(save_path_event_study, recursive = TRUE)
+      }
+      
+      
+      pdf(paste0(save_path_event_study , var, '_', treat, '_by_t',".pdf"))
+      print(event_study_plot)
+      dev.off() 
+      print(event_study_plot)}
+    
+    }
+  
+  }
+  return(list_es_solo)
+}
+
+
+
+
+compute_separate_estimates <- function(treatments = c('acces_rce','date_first_idex'),
+                                       outcomes = NULL,
+                                       data,
+                                       id_vars = c('author_id','merged_inst_id_domain'),
+                                       trend_controls = NULL,
+                                       w_matching = TRUE,
+                                       matching_variables = c('entry_year','domain'),
+                                       plot_event_study = FALSE,
+                                       save_event_study = FALSE,
+                                       save_path = '',
+                                       type = 'fepois'
+){
+  list_es_solo = list()
+  
+  for(treat in treatments){
+    list_es_solo[[treat]] <- list()
+    sample_separate <- data
+    
+    if(is.null(outcomes)){outcomes <- colnames(data)[str_detect(colnames(data), 'reweight')]}
+    
+    
+    for(d in all_treatments[all_treatments != treat]){
+      sample_separate <- sample_separate[sample_separate[[d]] == 0]
+    }
+    sample_separate <- sample_separate[!str_detect(domain, ',') & !is.na(REG)]
+    
+    ## Remove excluded values
+    if(treat == 'acces_rce'){sample_separate <- sample_separate %>% .[acces_rce != 2015]}
+    
+    treatment_values <- sort(unique(sample_separate[sample_separate[[treat]] !=0][[treat]]))
+    
+    formula_elements <- c()
+    for(g_i in treatment_values){
+      print(paste0(treat, ': ', g_i))
+      varname =paste0(treat, '_', g_i)
+      ref = as.character(as.numeric(g_i)-1)
+      sample_separate[[varname]] <- as.numeric((sample_separate[[treat]] == g_i))
+      formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+    }  
+    length(formula_elements)
+    
+    units <- unique(sample_separate[, ..unit_cols]) %>%
+      .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)]
+    print(table(units[[treat]]))
+    
+    formula_ctrl <- paste0( 'y ~ y_minus_i_lt + ',  
+                            paste0(formula_elements, collapse= '+'), 
+                            '|  year + ',
+                            paste0(id_vars, collapse = '+')
+                            )
+    if(!is.null(trend_controls)){
+      formula_ctrl <- paste0(formula_ctrl, "+",
+                             paste0(paste0(trend_controls, '^year'), collapse = '+'))
+    }
+    
+    if(w_matching == TRUE){
+      
+      formula_ctrl <- paste0(formula_ctrl,  '+ subclass^year')
+      
+      matching_fml = paste0('treat ~ ', paste0(matching_variables, collapse = "+"))
+      match_units <- matchit(as.formula(matching_fml)
+                             ,data = units
+                             ,method = "exact")
+      matched_units <- match.data(match_units)
+      print(table(matched_units[[treat]]))
+      
+      to_keep_in_matched_units <- c(id_vars, "subclass")
+      
+      matched_units <- matched_units %>%
+        .[, ..to_keep_in_matched_units]
+      
+    }
+    for(var in outcomes ){
+      
+      list_es_solo[[treat]][[var]] <- list()
+      
+      sample_separate$y <- sample_separate[[var]]
+      
+      sample_separate <- sample_separate %>%
+        .[, ':='(y_lt = sum(y)), by = id_vars] %>%
+        .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
+      
+      if(w_matching == TRUE){
+        df_reg <- merge(sample_separate, matched_units, by = id_vars)
+      }
+      else{df_reg <- sample_separate}
+      
+      start_time <- Sys.time()
+      
+      if(type == "fepois"){
+      es_stag_w_ctrl <- fepois(as.formula(formula_ctrl),
+                               , data = df_reg 
+                               ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
+                               ,cluster = id_vars
+      ) }
+      if(type == 'feols'){
+        es_stag_w_ctrl <- feols(as.formula(formula_ctrl),
+                                 , data = df_reg 
+                                 ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
+                                 ,cluster = id_vars
+        ) 
+        
+      }
+      time_taken <- Sys.time()-start_time
+      gc()
+      print(time_taken)
+      list_es_solo[[treat]][[var]][['regression']] <- es_stag_w_ctrl
+      
+      list_es_solo[[treat]][[var]][['table_agg']] <- agg_effects(es_stag_w_ctrl, df_reg, t_limit = 5)%>%
+        .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+      list_es_solo[[treat]][[var]][['table_agg_by_t']] <- agg_effect_het(es_stag_w_ctrl, df_reg, by  ='t', t_limit = 5)%>%
+        .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+      list_es_solo[[treat]][[var]][['table_agg_by_g']] <- agg_effect_het(es_stag_w_ctrl, df_reg, by  ='g')%>%
+        .[, var := var] %>% .[, ctrl :=  paste0( sort(trend_controls), collapse = "_")]
+      
+      for_pre_mean <- df_reg 
+      if(type == "fepois"){
+      for(id_var in id_vars){
+        for_pre_mean <- for_pre_mean[! (for_pre_mean[[id_var]] %in% es_stag_w_ctrl$fixef_removed[[id_var]]) ]
+      }}
+      
+      list_es_solo[[treat]][[var]][["pre_mean"]] <- round(mean((for_pre_mean[(for_pre_mean[["year"]]<= for_pre_mean[[treat]] | for_pre_mean[[treat]] == 0)])[[var]], na.rm =T),2)
+      list_es_solo[[treat]][[var]][["n_obs"]] <- es_stag_w_ctrl$nobs
+      if(type == "fepois"){
+        list_es_solo[[treat]][[var]][["pseudo_r2"]] <- round(es_stag_w_ctrl$pseudo_r2, 5)
+      }
+      if(type == "feols"){  list_es_solo[[treat]][[var]][["pseudo_r2"]]<- round(r2(es_stag_w_ctrl)[['r2']], 5)}
+      event_study_plot <- ggplot(list_es_solo[[treat]][[var]][['table_agg_by_t']])+
+        geom_point(aes(x= t, y = est))+
+        geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
+        geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+        labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+        theme_bw()
+      if(plot_event_study == TRUE){
+        print(event_study_plot)}
+      if(save_event_study == TRUE){
+        
+        if(w_matching == TRUE){
+          save_path_event_study <- paste0(save_path, '\\', treat, '\\match_',paste0(sort(matching_variables), collapse = '_') ,'\\fe_',paste0( sort(trend_controls), collapse = "_"), '\\' )
+          
+        }
+        else{
+          save_path_event_study <- paste0(save_path, '\\', treat, '\\fe_', paste0( sort(trend_controls), collapse = "_"), '\\' )
+        }
+        if (!file.exists(save_path_event_study)){
+          dir.create(save_path_event_study, recursive = TRUE)
+        }
+        
+        
+        pdf(paste0(save_path_event_study , var, '_', treat, '_by_t',".pdf"))
+        print(event_study_plot)
+        dev.off() 
+        print(event_study_plot)}
+      
+    }
+  }
+  return(list_es_solo)
+}
+
+
+
+
 make_stargazer_like_table_dt <- function(dt,
                                          digits = 3,
                                          note = NULL,

@@ -232,6 +232,46 @@ agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_val
 gc()
 
 
+unit_cols <- c('merged_inst_id','domain', 'name', 'author_id','author_name', "merged_inst_id_domain",
+               'acces_rce', 'date_first_idex','fusion_date', 'field',
+               'city', 'DEP', 'REG','type','public','ecole','cnrs', "entry_cohort",
+               'size_n_tile','prod_inst_n_tile',
+               'entry_year', 'prod_au_n_tile', 'gender'
+)
+
+save_path = paste0("D:\\panel_fr_res\\results\\productivity\\all_treatments\\")
+if (!file.exists(save_path)){
+  dir.create(save_path, recursive = TRUE)
+}
+
+trend_controls_to_test <- list( NULL,
+                                c('field', 'entry_cohort','cnrs', 'city') ,
+                                c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
+                                c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile'),     
+                                c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile'),     
+                                c('field', 'entry_cohort','cnrs', 'city', 'prod_inst_n_tile'),                                
+                                c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile', 'prod_inst_n_tile'),
+                                c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile', 'prod_inst_n_tile')
+                                
+)
+
+
+list_es <- list()
+
+for(trend_ctrl in trend_controls_to_test){
+  list_es[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = c('publications_reweight','citations_reweight','nr_source_top_5pct_reweight','nr_source_top_10pct_reweight',
+                                                                                      'avg_rank_source_raw'),
+                                                                         data = sample_df_reg,
+                                                                         w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
+                                                                         trend_controls = trend_ctrl,
+                                                                         plot_event_study = TRUE,
+                                                                         save_event_study = TRUE, save_path = save_path, type = "feols"
+  )
+  
+  gc()
+  
+}
+
 
 # Main regressions --------------------------------------------------------
 
