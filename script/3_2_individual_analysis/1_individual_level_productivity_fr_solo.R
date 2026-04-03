@@ -206,6 +206,9 @@ test_data <- sample_df_reg %>%
 units <- unique(test_data[, ..unit_cols])
 list_es_solo <- list()
 
+all_outcomes <- c(outcomes, "semantic_distance")
+
+
 trend_controls_to_test <- list( NULL,
                                c('field', 'entry_cohort','cnrs', 'city') ,
                                c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
@@ -219,8 +222,7 @@ trend_controls_to_test <- list( NULL,
 
 for(trend_ctrl in trend_controls_to_test){
 list_es_solo[[paste0(trend_ctrl, collapse = '_')]] <- compute_separate_estimates(treatments = c("acces_rce",'date_first_idex'),
-                                   outcomes = c('publications_reweight','citations_reweight','nr_source_top_5pct_reweight','nr_source_top_10pct_reweight',
-                                                'avg_rank_source_raw'),
+                                   outcomes = all_outcomes,
                                    data = test_data,
                                    w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
                                    trend_controls = trend_ctrl,

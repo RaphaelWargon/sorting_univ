@@ -24,7 +24,7 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
-inputpath <- "D:\\panel_fr_res\\panel_smoothed.parquet"
+inputpath <- "D:\\panel_fr_res\\data\\panel_smoothed.parquet"
 
 
 ds <- open_dataset(inputpath) %>%
@@ -38,18 +38,12 @@ ds <- open_dataset(inputpath) %>%
 ds <- as.data.table(ds)
 
 
-reweight_cols <-  c('publications_raw', 
-                    'citations_raw',
-                    'nr_source_top_5pct_raw',
-                    'nr_source_top_10pct_raw'
-)
 
 ds <- ds %>%
-  .[, (str_replace(reweight_cols, '_raw','_reweight')) := lapply(.SD, function(x) x/n_inst_y), .SDcols = reweight_cols] %>%
   .[, n_lt_global := n_distinct(author_id), by = c('merged_inst_id', 'year')] %>%
-  .[, prod_inst_2003:= max(sum(citations_reweight)/n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id'] %>%
+  .[, prod_inst_2003:= max(sum(citations)/n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id'] %>%
   .[, size_2003:= max(n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id'] %>%
-  .[, prod_au_first_2y := max(citations_reweight * as.numeric( as.numeric(as.character(year))<= entry_year +2 )), by = 'author_id']
+  .[, prod_au_first_2y := max(citations * as.numeric( as.numeric(as.character(year))<= entry_year +2 )), by = 'author_id']
 
 
 ds <- ds %>%
@@ -69,11 +63,7 @@ ds <- ds %>%
   )]
 
 
-
-inst <-  as.data.table(open_dataset("D:\\panel_fr_res\\inst_fr.parquet"))
 gc()
-
-orsay_to_recode <- c('I3019441195','I4210109968','I4210162675','I4210097733','I4210151467','I4210115729','I2799857465','I4210121618','I4210118056')
 
 sample_df <- ds %>%
   ## without the brits
@@ -84,9 +74,6 @@ sample_df <- ds %>%
            n_authors_sample = n_distinct(author_id),
            n_y_sample_inst = n_distinct(year),
            n_obs_inst = .N), by = c('merged_inst_id','field')]%>%
-  .[, acces_rce := ifelse(merged_inst_id %in% orsay_to_recode, "2010", acces_rce)] %>%
-  .[, date_first_idex := ifelse(merged_inst_id %in% orsay_to_recode, 2012, date_first_idex)] %>%
-  .[, fusion_date := ifelse(merged_inst_id %in% orsay_to_recode, 2019, fusion_date)] %>%
   .[, n_y_in_sample_au := n_distinct(year), by = 'author_id']%>%
   .[ n_authors_w_several_inst > 0 # ensure that the author and firm are part of the connected set
      & n_y_in_sample_au >=2 & n_authors_sample >1 & n_y_sample_inst>1] %>% #remove labs that are too poorly measured
@@ -109,15 +96,15 @@ sample_df <- ds %>%
 gc()
 rm(ds)
 gc()
-length(unique(sample_df$author_id)) #386536
-nrow(unique(sample_df[, list(merged_inst_id, field)])) #43576
+length(unique(sample_df$author_id)) #384019
+nrow(unique(sample_df[, list(merged_inst_id, field)])) #40400
 
 
 ggplot(unique(sample_df[, list(author_id, n_obs_au,entry_year)]))+geom_density(aes(x=n_obs_au, group = entry_year,color = entry_year))
 
 
 
-cities <- fread('D:\\panel_fr_res\\v_commune_2025.csv')
+cities <- fread('D:\\panel_fr_res\\data\\v_commune_2025.csv')
 
 # Staggered design regression to estimate treatment effects ---------------
 
@@ -132,13 +119,14 @@ sample_df_reg <- sample_df %>%
   .[, year_n := as.numeric(as.character(year))] %>%
   .[!(acces_rce %in%  c(2014, 2015))
     & !(date_first_idex %in% c(2014))
-    & !(fusion_date %in% c(2012,2019))
+    & !(fusion_date %in% c(2012,2016,2019))
     & !(str_detect(idex, "annulee"))] %>%
   .[, pub_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * publications_raw ), by = 'author_id'] %>%
   .[pub_04_07 >=2] %>%
   .[str_count(field, ',')<=1]%>%
   .[, n_lt := n_distinct(author_id), by = c('merged_inst_id','field','year')] %>%
   .[, merged_inst_id_field := paste0(merged_inst_id, '_', field)] %>%
+  .[, merged_inst_id_domain := paste0(merged_inst_id, '_', domain)] %>%
   .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
   #.[year != "2020"] %>%
   .[ , ':='(fusion_date = as.factor(fusion_date),
@@ -154,46 +142,30 @@ gc()
 sample_df_reg <- merge(sample_df_reg, cities %>% .[, city:=LIBELLE], by ='city', allow.cartesian = TRUE)%>%
   .[!is.na(LIBELLE)]
 
-outcomes <- c('publications_raw', 'publications_reweight',
-              'citations_raw','citations_reweight',
-              'nr_source_top_5pct_raw', 'nr_source_top_5pct_reweight',
-              'nr_source_top_10pct_raw', 'nr_source_top_10pct_reweight'
+outcomes <- c('publications_raw', 'publications',
+              'citations_raw','citations',
+              'nr_source_top_5pct_raw', 'nr_source_top_5pct',
+              'nr_source_top_10pct_raw', 'nr_source_top_10pct',
+              'nr_source_top_20pct_raw', 'nr_source_top_20pct',
+              'nr_source_mid_40pct_raw', 'nr_source_mid_40pct',
+              'nr_source_btm_50pct_raw', 'nr_source_btm_50pct',
+              colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), "new")]
 )
 
-sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes]
+sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes] %>%
+  .[, ':='(entry_cohort = floor(entry_year/5)*5) ]
+
 fwrite(sample_df_reg, "D:\\panel_fr_res\\sample_df_reg.csv" )
 sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
 
-length(unique(sample_df_reg$author_id)) #129095
-nrow(unique(sample_df_reg[, list(merged_inst_id, field)])) #30708
+length(unique(sample_df_reg$author_id)) #126275
+nrow(unique(sample_df_reg[, list(merged_inst_id, field)])) #30334
 table(unique(sample_df_reg[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$acces_rce)
 table(unique(sample_df_reg[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$date_first_idex)
 table(unique(sample_df_reg[, list(merged_inst_id, field, acces_rce,date_first_idex,fusion_date)])$fusion_date)
 
 
 # Write specification ---------------------------------------------------
-
-
-fe_min = ' | merged_inst_id_field + author_id + year'
-
-fe_large = paste0(  ' | merged_inst_id_field + '
-                    ,'year +author_id '
-                    ,'+ type^year '
-                    ,'+ gender^year'
-                    #,'+ public^year'
-                    ,'+ ecole^year'
-                    ,'+ cnrs^year'
-                    #,'+ field^year'
-                    ,'+ entry_year^year '
-                    ,'+ prod_au_n_tile^year'
-                    ,'+ prod_inst_n_tile^year'
-                    #,'+ size_n_tile^year'
-                    ,'+ REG^year'
-                    #,'+ n_inst_y^year'
-                    
-)
-gc()
-
 
 list_g = list( "acces_rce" = sort(unique(sample_df_reg[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(sample_df_reg[date_first_idex !=0]$date_first_idex))
@@ -225,12 +197,7 @@ formula_no_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_ele
 formula_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_large))
 list_es = list()
 
-agg_stag <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, pvalue_pretrend= 0, type = '', comparison_group = '',  var = '', ctrl = '') %>% .[treat != '']
-agg_stag_by_t <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0, n = '', comparison_group = '', var = '',  ctrl = '') %>% .[treatment != '']
-agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0, g = 0, n = '', comparison_group = '', var = '',  ctrl = '') %>% .[treatment != '']
-
-gc()
-
+all_outcomes <- c(outcomes, "semantic_distance")
 
 unit_cols <- c('merged_inst_id','domain', 'name', 'author_id','author_name', "merged_inst_id_domain",
                'acces_rce', 'date_first_idex','fusion_date', 'field',
@@ -243,7 +210,6 @@ save_path = paste0("D:\\panel_fr_res\\results\\productivity\\all_treatments\\")
 if (!file.exists(save_path)){
   dir.create(save_path, recursive = TRUE)
 }
-
 trend_controls_to_test <- list( NULL,
                                 c('field', 'entry_cohort','cnrs', 'city') ,
                                 c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
@@ -259,8 +225,9 @@ trend_controls_to_test <- list( NULL,
 list_es <- list()
 
 for(trend_ctrl in trend_controls_to_test){
-  list_es[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = c('publications_reweight','citations_reweight','nr_source_top_5pct_reweight','nr_source_top_10pct_reweight',
-                                                                                      'avg_rank_source_raw'),
+  list_es[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = c('publications','citations','nr_source_top_5pct','nr_source_top_10pct',
+                                                                                      'avg_rank_source_raw'
+                                                                                      ),
                                                                          data = sample_df_reg,
                                                                          w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
                                                                          trend_controls = trend_ctrl,
@@ -272,169 +239,76 @@ for(trend_ctrl in trend_controls_to_test){
   
 }
 
-
-# Main regressions --------------------------------------------------------
-
-
-for(var in outcomes[str_detect(outcomes, 'reweight')]){
-  no_ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\no_ctrl\\"
-  ctrl_path = "D:\\panel_fr_res\\productivity_results\\individual\\ctrl\\"
-  if (!file.exists(no_ctrl_path)){
-    dir.create(no_ctrl_path, recursive = TRUE)
-  }
-  if (!file.exists(ctrl_path)){
-    dir.create(ctrl_path, recursive = TRUE)
-  }
-  
-  list_es[[var]] <- list()
-  
-  sample_df_reg$y <- sample_df_reg[[var]]
-
-  sample_df_reg <- sample_df_reg %>%
-  .[, ':='(y_lt = sum(y)), by = c('merged_inst_id',"field", 'year')] %>%
-  .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
+saveRDS(list_es, paste0(save_path, 'all_regressions_matched_entry_cohort_city_field.rds'))
 
 
-  start_time <- Sys.time()
-  es_stag <- fepois(formula_no_ctrl
-                  , data = sample_df_reg
-                  ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
-                  ,cluster = c('merged_inst_id_field','author_id')
-  ) 
-  time_taken <- Sys.time() - start_time
-  print(time_taken)
-  gc()
-  list_es[[var]][['no_ctrl']] <- es_stag
-  
-  start_time <- Sys.time()
-  es_stag_w_ctrl <- fepois(formula_ctrl,
-                          , data = sample_df_reg 
-                          ,mem.clean = TRUE,lean = TRUE,fixef.tol = 1E-2
-                          ,cluster = c('author_id','merged_inst_id_field')
-  ) 
-  time_taken <- Sys.time()-start_time
-  gc()
-  print(time_taken)
-  list_es[[var]][['ctrl']] <- es_stag_w_ctrl
-}
+chosen_spec <- "field_entry_cohort_cnrs_city_gender"
 
-saveRDS(list_es, file = "D:\\panel_fr_res\\productivity_results\\individual\\all_regressions.rds")
-list_es <- readRDS("D:\\panel_fr_res\\productivity_results\\individual\\all_regressions.rds")
 
-# Compute aggregate effects and graphs ------------------------------------
+list_es_chosen_spec <- compute_all_estimates(outcomes = setdiff(all_outcomes, str_remove(names(list_es[[chosen_spec]]), '_reweight' )),
+data = sample_df_reg,
+w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
+trend_controls =  c('field', 'entry_cohort','cnrs', 'city', 'gender'),
+plot_event_study = TRUE,
+save_event_study = TRUE, save_path = save_path, type = "feols"
+)
 
-source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
+saveRDS(list_es_chosen_spec, paste0(save_path, 'all_regressions_matched_entry_cohort_city_field_fe_field_entry_cohort_cnrs_city_gender.rds'))
 
-for(var in names(list_es)){
-  
-  agg_stag_no_ctrl <- agg_effects(list_es[[var]][['no_ctrl']], sample_df_reg, t_limit = 5)%>%
-    .[, var := var] %>% .[, ctrl := 'None']
-  agg_stag <- rbind(agg_stag, agg_stag_no_ctrl)
-  agg_stag_by_t_no_ctrl <- agg_effect_het(list_es[[var]][['no_ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
-    .[, var := var] %>% .[, ctrl := 'None']
-  agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_no_ctrl)
-  for(treat in unique(agg_stag_by_t_no_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_t_no_ctrl %>% .[treatment %in% c(treat)])+
-      geom_point(aes(x= t, y = est))+
-      geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
-      geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
-      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
-      theme_bw()
-    pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_t',".pdf"))
-    print(p)
-    dev.off() 
-    rm(p)
-  }
-  gc()
-  agg_stag_by_g_no_ctrl <- agg_effect_het(list_es[[var]][['no_ctrl']], sample_df_reg, by  ='g')%>%
-    .[, var := var] %>% .[, ctrl := 'None']
-  agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_no_ctrl)
-  for(treat in unique(agg_stag_by_g_no_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_g_no_ctrl %>% .[treatment %in% c(treat)])+
-      geom_point(aes(x= g, y = est))+
-      geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std))+
-      geom_hline(aes(yintercept = 0))+
-      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('First treatment period')+ ylab('Estimate and 95% CI')+
-      theme_bw()
-    pdf(paste0(no_ctrl_path, var, '_', treat , "_", 'by_g',".pdf"))
-    print(p)
-    dev.off() 
-    rm(p)
-  }
-  
-  
-  
-  
-  agg_stag_ctrl <- agg_effects(list_es[[var]][['ctrl']], sample_df_reg, t_limit = 5)%>%
-    .[, var := var] %>% .[, ctrl := fe_large]
-  
-  agg_stag <- rbind(agg_stag, agg_stag_ctrl)
-  agg_stag_by_t_ctrl <- agg_effect_het(list_es[[var]][['ctrl']], sample_df_reg, by  ='t', t_limit = 5)%>%
-    .[, var := var] %>% .[, ctrl := fe_large]
-  agg_stag_by_t <- rbind(agg_stag_by_t, agg_stag_by_t_ctrl)
-  
-  for(treat in unique(agg_stag_by_t_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_t_ctrl %>% .[treatment %in% c(treat)])+
-      geom_point(aes(x= t, y = est))+
-      geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
-      geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
-      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
-      theme_bw()
-    pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_t',".pdf"))
-    print(p)
-    dev.off() 
-    rm(p)
-  }
-  gc()
-  
-  agg_stag_by_g_ctrl <- agg_effect_het(list_es[[var]][['ctrl']], sample_df_reg, by  ='g')%>%
-    .[, var := var] %>% .[, ctrl := fe_large]
-  agg_stag_by_g <- rbind(agg_stag_by_g, agg_stag_by_g_ctrl)
-  
-  for(treat in unique(agg_stag_by_g_ctrl$treatment)){
-    p <- ggplot(agg_stag_by_g_ctrl %>% .[treatment %in% c(treat) ])+
-      geom_point(aes(x= g, y = est))+
-      geom_errorbar(aes(x=g, ymin = est -1.96*std, ymax=est+1.96*std), width = 0.5)+
-      geom_hline(aes(yintercept = 0))+
-      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
-      theme_bw()
-    pdf(paste0(ctrl_path,var, '_', treat , "_", 'by_g',".pdf"))
-    print(p)
-    dev.off() 
-    rm(p)
-  }
-  gc()
-}
+gc()
+
+agg_stag <- map(outcomes, \(outcome)
+                    map(1:length(list_es), \(spec)
+                        list_es[[spec]][[outcome]][["table_agg"]]
+                    )
+) |>
+  unlist(recursive = FALSE) |>
+  rbindlist() %>% distinct()
+
+
+outcomes_to_keep <- c('publications','citations','nr_source_top_10pct',
+                      'new_phrase_reuse'  ,'total_new_phrase_comb_reuse')
+
+agg_stag_spec <- rbind(map(outcomes_to_keep, \(outcome)
+                    list_es[["field_entry_cohort_cnrs_city_gender"]][[outcome]][["table_agg"]]
+                ) |>
+  rbindlist() %>% distinct(),
+  map(outcomes_to_keep, \(outcome)
+      list_es_chosen_spec[[outcome]][["table_agg"]]
+  ) |>
+    rbindlist() %>% distinct() ) %>% .[, var := str_remove(var, "_reweight")]
 
 
 
-pre_mean <- list() 
-for(var in names(list_es)){
-  pre_mean[[var]] <- round(mean((sample_df_reg[as.numeric(as.character(year)) < 2009])[[var]], na.rm =T),2)
-}
-n_obs <- list()
-r_2 <- list()
+pre_mean_spec <- map(outcomes[outcomes != 'avg_rank_source_raw'], \(outcome)
+                     list_es[["field_entry_cohort_cnrs_city_gender"]][[outcome]][["pre_mean"]]
+) |>
+  rbindlist() %>% distinct()
+n_obs_spec <- map(outcomes[outcomes != 'avg_rank_source_raw'], \(outcome)
+                     list_es[["field_entry_cohort_cnrs_city_gender"]][[outcome]][["n_obs"]]
+) |>
+  rbindlist() %>% distinct()
+r_2_spec <- unlist(rbind(map(outcomes_to_keep, \(outcome)
+                           list_es[["field_entry_cohort_cnrs_city_gender"]][[outcome]][["pseudo_r2"]]
+)  ,
+map(outcomes_to_keep, \(outcome)
+    list_es_chosen_spec[[outcome]][["pseudo_r2"]]
+) ))
+names(r_2_spec) <- 
 
-for(var in names(list_es)){
-  n_obs[[ paste0(var, " | ", fe_min)]] <- list_es[[var]][['no_ctrl']]$nobs
-  n_obs[[ paste0(var, " | ", fe_large)]] <- list_es[[var]][['ctrl']]$nobs
-  r_2[[ paste0(var, " | ", fe_min)]] <-   round(list_es[[var]][['no_ctrl']]$pseudo_r2, 5)
-  r_2[[ paste0(var, " | ", fe_large)]] <- round(list_es[[var]][['ctrl']]$pseudo_r2   , 5)
-  #r_2[[ paste0(var, " | ", fe_min)]] <-   round(r2(list_es[[var]][['no_ctrl']])[['r2']], 5)
-  #r_2[[ paste0(var, " | ", fe_large)]] <- round(r2(list_es[[var]][['ctrl']])[['r2']]   , 5)
-  
-}
 
-make_stargazer_like_table_dt(unique(agg_stag %>%
-                               .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
+
+make_stargazer_like_table_dt(unique(agg_stag_spec %>%
+                               .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"]), 
                              var_map = dict_vars, 
                              treat_map = dict_vars, 
-                             pre_mean = pre_mean,
-                             n_obs = n_obs,
-                            # r_2 = r_2,
-                             var_order = c('publications_reweight','citations_reweight','nr_source_top_10pct_reweight','nr_source_top_5pct_reweight'), 
+                             #pre_mean = pre_mean,
+                             #n_obs = n_obs,
+                             r_2 = r_2_spec,
+                             var_order = outcomes_to_keep,
                              drop_unlisted_vars = TRUE,
-                             save_path = 'D:\\panel_fr_res\\productivity_results\\individual\\agg_prod.tex'
+                             save_path = paste0(save_path, '\\match_',paste0(sort(c('entry_cohort','city','field')), collapse = '_') 
+                                                ,'_fe_field_entry_cohort_cnrs_city_gender.tex' )
 )
 
 
@@ -478,7 +352,7 @@ make_stargazer_like_table_dt(rbind(nyt_est_no_ctrl,nyt_est_ctrl),
                              pre_mean = pre_mean,
                              n_obs = n_obs,
                              # r_2 = r_2,
-                             var_order = c('publications_reweight','citations_reweight','nr_source_top_10pct_reweight','nr_source_top_5pct_reweight'), 
+                             var_order = c('publications','citations','nr_source_top_10pct','nr_source_top_5pct'), 
                              drop_unlisted_vars = TRUE,
                              save_path = 'D:\\panel_fr_res\\productivity_results\\individual\\agg_prod_nyt_est.tex'
 )
@@ -501,7 +375,7 @@ make_stargazer_like_table_dt(rbind(ch_est_no_ctrl,ch_est_ctrl),
                              pre_mean = pre_mean,
                              n_obs = n_obs,
                              # r_2 = r_2,
-                             var_order = c('publications_reweight','citations_reweight','nr_source_top_10pct_reweight','nr_source_top_5pct_reweight'), 
+                             var_order = c('publications','citations','nr_source_top_10pct','nr_source_top_5pct'), 
                              drop_unlisted_vars = TRUE,
                              save_path = 'D:\\panel_fr_res\\productivity_results\\individual\\agg_prod_ch_est.tex'
 )
@@ -743,7 +617,7 @@ sample_df_reg <- sample_df_reg %>%
   .[, ':='(size_n_tile = cut(size_2003, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, size_2003)])$size_2003,
                                                  probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
     ]
-#outcomes <- c("publications_reweight")
+#outcomes <- c("publications")
 for(var in outcomes){
   list_es_het_by_size[[var]] <- list()
   
@@ -846,12 +720,12 @@ if (!file.exists(ctrl_path)){
 list_es_het_by_prod_inst <- list()
 sample_df_reg <- sample_df_reg %>%
   .[, n_lt_global := n_distinct(author_id), by = c('merged_inst_id', 'year')] %>%
-  .[, prod_inst_2003:= max(sum(citations_reweight)/n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id']
+  .[, prod_inst_2003:= max(sum(citations)/n_lt_global * as.numeric(year == 2003)), by = 'merged_inst_id']
 sample_df_reg <- sample_df_reg %>%
   .[, ':='(prod_inst_n_tile = cut(prod_inst_2003, unique(quantile(unique(sample_df_reg[, list(merged_inst_id, prod_inst_2003)])$prod_inst_2003,
                                                         probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
   ]
-#outcomes <- c("publications_reweight")
+#outcomes <- c("publications")
 for(var in outcomes){
   list_es_het_by_prod_inst[[var]] <- list()
   
@@ -953,7 +827,7 @@ if (!file.exists(ctrl_path)){
 
 list_es_het_by_domain <- list()
 
-#outcomes <- c("publications_reweight")
+#outcomes <- c("publications")
 for(var in outcomes){
   list_es_het_by_domain[[var]] <- list()
   

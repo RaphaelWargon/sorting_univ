@@ -551,45 +551,46 @@ compute_all_estimates <- function(outcomes = NULL,
         for_pre_mean <- for_pre_mean[! (for_pre_mean[[id_var]] %in% es_stag_w_ctrl$fixef_removed[[id_var]]) ]
       }}
     
-    list_es_all[["pre_mean"]] <- round(mean((for_pre_mean[(for_pre_mean[["year"]]<= for_pre_mean[[treat]] | for_pre_mean[[treat]] == 0)])[[var]], na.rm =T),2)
-    list_es_all[["n_obs"]] <- es_stag_w_ctrl$nobs
+    list_es_all[[var]][["pre_mean"]] <- round(mean((for_pre_mean[(for_pre_mean[["year"]] %in% c(2000:2009))])[[var]], na.rm =T),2)
+    list_es_all[[var]][["n_obs"]] <- es_stag_w_ctrl$nobs
     if(type == "fepois"){
       list_es_all[[var]][["pseudo_r2"]] <- round(es_stag_w_ctrl$pseudo_r2, 5)
     }
     if(type == "feols"){ list_es_all[[var]][["pseudo_r2"]]<- round(r2(es_stag_w_ctrl)[['r2']], 5)}
     
-    for(treat in unique(list_es_solo[[treat]][[var]][['table_agg']]$treat)){
-    event_study_plot <- ggplot(list_es_all[[var]][['table_agg_by_t']])+
+    for(d in unique(list_es_all[[var]][['table_agg']]$treat)){
+      print(d)
+    event_study_plot <- ggplot(list_es_all[[var]][['table_agg_by_t']] %>% .[treatment ==d])+
       geom_point(aes(x= t, y = est))+
       geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std))+
       geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
-      labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+      labs(title = paste0('Treatment: ', dict_vars[[d]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
       theme_bw()
     if(plot_event_study == TRUE){
       print(event_study_plot)}
     if(save_event_study == TRUE){
       
       if(w_matching == TRUE){
-        save_path_event_study <- paste0(save_path, '\\', treat, '\\match_',paste0(sort(matching_variables), collapse = '_') ,'\\fe_',paste0( sort(trend_controls), collapse = "_"), '\\' )
+        save_path_event_study <- paste0(save_path, '\\', d, '\\match_',paste0(sort(matching_variables), collapse = '_') ,'\\fe_',paste0( sort(trend_controls), collapse = "_"), '\\' )
         
       }
       else{
-        save_path_event_study <- paste0(save_path, '\\', treat, '\\fe_', paste0( sort(trend_controls), collapse = "_"), '\\' )
+        save_path_event_study <- paste0(save_path, '\\', d, '\\fe_', paste0( sort(trend_controls), collapse = "_"), '\\' )
       }
       if (!file.exists(save_path_event_study)){
         dir.create(save_path_event_study, recursive = TRUE)
       }
       
       
-      pdf(paste0(save_path_event_study , var, '_', treat, '_by_t',".pdf"))
+      pdf(paste0(save_path_event_study , var, '_', d, '_by_t',".pdf"))
       print(event_study_plot)
       dev.off() 
-      print(event_study_plot)}
+      }
     
     }
   
   }
-  return(list_es_solo)
+  return(list_es_all)
 }
 
 
@@ -747,7 +748,7 @@ compute_separate_estimates <- function(treatments = c('acces_rce','date_first_id
         pdf(paste0(save_path_event_study , var, '_', treat, '_by_t',".pdf"))
         print(event_study_plot)
         dev.off() 
-        print(event_study_plot)}
+        }
       
     }
   }
@@ -1052,6 +1053,24 @@ dict_vars <- c('acces_rce'= 'Administrative autonomy',
                "nr_source_top_20pct"="Top 20% journal publications", 
                "nr_source_top_10pct" ="Top 10% journal publications", 
                "nr_source_top_5pct" ="Top 5% journal publications",
+               "new_word_comb"              = "Avg #new words",
+               "new_word_comb"              = "Avg #new word combinations",
+               "new_word_comb_reuse"        = "Avg #new word combinations",
+               "new_phrase_comb_reuse"      = "Avg #new phrase combinations",
+               "new_phrase_comb"            = "Avg #new phrase combinations",
+               "new_phrase"                 = "Avg #new phrases",
+               "new_phrase_reuse"           = "Avg #new phrases",
+               "total_new_phrase_reuse"      = "Total #new phrases",
+               "total_new_phrase"            = "Total #new phrases",
+               "total_new_word"              = "Total #new word ",
+               "total_new_word_comb"         = "Total #new word combinations",
+               "total_new_phrase_comb"       = "Total #new phrase combinations",
+               "total_new_phrase_comb_reuse" = "Total #new phrase combinations",
+               "total_new_word_reuse"        = "Total #new word", 
+               "total_new_word_comb_reuse"   = "Total #new word combinations",
+               "semantic distance" = 'Avg semantic distance',
+               "new_word"                    ,
+               "new_word_reuse"              ,
                "type" = 'Institution Type',
                "city"=  'City',
                'cnrs'='CNRS',
@@ -1064,6 +1083,7 @@ dict_vars <- c('acces_rce'= 'Administrative autonomy',
                "| merged_inst_id_field"= 'Institution $\\times$ field',
                " | merged_inst_id_field"= 'Institution $\\times$ field',
                "author_id"= 'Author',              "year"= 'Year',  "entry_year"= 'Entry year',
+               "entry_cohort"= 'Entry year (5y. bins)',
                "field"= 'Field',              "gender"= 'Gender',
                " |merged_inst_id"= 'Institution $\\times$ field'
 )
