@@ -467,7 +467,8 @@ compute_all_estimates <- function(outcomes = NULL,
                                   plot_event_study = FALSE,
                                   save_event_study = FALSE,
                                   save_path = '',
-                                  type = 'fepois'
+                                  type = 'fepois',
+                                  comparison_group = 'never-treated'
 ){
   list_es_all = list()
 
@@ -485,7 +486,7 @@ compute_all_estimates <- function(outcomes = NULL,
                            paste0(paste0(trend_controls, '^year'), collapse = '+'))
   }
   
-  if(w_matching == TRUE){
+  if(comparison_group == 'never-treated' & w_matching == TRUE){
     
     formula_ctrl <- paste0(formula_ctrl,  '+ subclass^year')
     
@@ -501,6 +502,11 @@ compute_all_estimates <- function(outcomes = NULL,
     matched_units <- matched_units %>%
       .[, ..to_keep_in_matched_units]
     
+  }
+  if(comparison_group == 'not-yet-treated'){
+    data <- data %>%
+      .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)] %>%
+      .[treat == 1]
   }
   for(var in outcomes ){
     
@@ -599,7 +605,7 @@ compute_all_estimates <- function(outcomes = NULL,
 compute_separate_estimates <- function(treatments = c('acces_rce','date_first_idex'),
                                        outcomes = NULL,
                                        data,
-                                       id_vars = c('author_id','merged_inst_id_domain'),
+                                       id_vars = c('author_id','inst_id_domain'),
                                        trend_controls = NULL,
                                        w_matching = TRUE,
                                        matching_variables = c('entry_year','domain'),
@@ -614,7 +620,7 @@ compute_separate_estimates <- function(treatments = c('acces_rce','date_first_id
     list_es_solo[[treat]] <- list()
     sample_separate <- data
     
-    if(is.null(outcomes)){outcomes <- colnames(data)[str_detect(colnames(data), 'reweight')]}
+    #if(is.null(outcomes)){outcomes <- colnames(data)[str_detect(colnames(data), 'reweight')]}
     
     
     for(d in all_treatments[all_treatments != treat]){
@@ -944,8 +950,8 @@ make_stargazer_like_table_dt <- function(dt,
     collapse = " & "
   )
   pre_means_line= paste0('\\textit{Pre-2009 avg.} & ', paste0(pre_mean[models$var], collapse= '&'))
-  n_obs_line= paste0('N & ', paste0(n_obs[models$model_id], collapse= '&'))
-  r_2_line= paste0('Pseudo R2 & ', paste0(r_2[models$model_id], collapse= '&'))
+  n_obs_line= paste0('N & ', paste0(n_obs[models$var], collapse= '&'))
+  r_2_line= paste0('Pseudo R2 & ', paste0(r_2[models$var], collapse= '&'))
   
   # ---------------- Assemble LaTeX ----------------
   K <- nrow(models)

@@ -238,7 +238,7 @@ list_es[[var]][['ctrl']] <- es_stag_ctrl
 saveRDS(list_es, file = "D:\\panel_fr_res\\lab_results\\all_regressions.rds")
 }
 gc()
-list_es <- readRDS("D:\\panel_fr_res\\lab_results\\all_regressions.rds")
+list_es <- readRDS("D:\\panel_fr_res\\results_old\\lab_results_old\\all_regressions.rds")
 
 agg_stag <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, var = '', ctrl = '') %>% .[treat != '']
 agg_stag_by_t <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0,var = '',  ctrl = '') %>% .[treatment != '']
@@ -247,15 +247,15 @@ agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_val
 
 
 for( var in outcomes){
-  print(var)
-  var_path_no_ctrl= paste0("D:\\panel_fr_res\\lab_results\\full_no_fe\\", var, '\\')
-  if (!file.exists(var_path_no_ctrl)){
-    dir.create(var_path_no_ctrl, recursive = TRUE)
-  }
-  var_path_ctrl= paste0("D:\\panel_fr_res\\lab_results\\ctrl\\", var, '\\')
-  if (!file.exists(var_path_ctrl)){
-    dir.create(var_path_ctrl, recursive = TRUE)
-  }
+  #print(var)
+  #var_path_no_ctrl= paste0("D:\\panel_fr_res\\lab_results\\full_no_fe\\", var, '\\')
+  #if (!file.exists(var_path_no_ctrl)){
+  #  dir.create(var_path_no_ctrl, recursive = TRUE)
+  #}
+  #var_path_ctrl= paste0("D:\\panel_fr_res\\lab_results\\ctrl\\", var, '\\')
+  #if (!file.exists(var_path_ctrl)){
+  #  dir.create(var_path_ctrl, recursive = TRUE)
+  #}
   
   excluded_vars <- names(list_es[[var]][["ctrl"]]$coefficients)[str_detect(names(list_es[[var]][["ctrl"]]$coefficients),
                                                                            paste0('acces_rce_r_g2014|acces_rce_s_g2014|acces_rce_a_r_g2014|acces_rce_a_s_g2014',
@@ -283,9 +283,9 @@ for( var in outcomes){
       geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
       theme_bw()
-    pdf(paste0(var_path_no_ctrl, var, '_', treat , "_", 'by_t',".pdf"))
+    #pdf(paste0(var_path_no_ctrl, var, '_', treat , "_", 'by_t',".pdf"))
     print(p)
-    dev.off() 
+    #dev.off() 
     rm(p)
   }
   gc()
@@ -299,9 +299,9 @@ for( var in outcomes){
       geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('First treatment period')+ ylab('Estimate and 95% CI')+
       theme_bw()
-    pdf(paste0(var_path_no_ctrl, var, '_', treat , "_", 'by_g',".pdf"))
+    #pdf(paste0(var_path_no_ctrl, var, '_', treat , "_", 'by_g',".pdf"))
     print(p)
-    dev.off() 
+    #dev.off() 
     rm(p)
   }
   
@@ -325,9 +325,9 @@ for( var in outcomes){
       geom_vline(aes(xintercept = "-1"), linetype = 'dashed')+geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
       theme_bw()
-    pdf(paste0(var_path_ctrl, var, '_', treat , "_", 'by_t',".pdf"))
+    #pdf(paste0(var_path_ctrl, var, '_', treat , "_", 'by_t',".pdf"))
     print(p)
-    dev.off() 
+    #dev.off() 
     rm(p)
   }
   gc()
@@ -344,9 +344,9 @@ for( var in outcomes){
       geom_hline(aes(yintercept = 0))+
       labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
       theme_bw()
-    pdf(paste0(var_path_ctrl, var, '_', treat , "_", 'by_g',".pdf"))
+    #pdf(paste0(var_path_ctrl, var, '_', treat , "_", 'by_g',".pdf"))
     print(p)
-    dev.off() 
+    #dev.off() 
     rm(p)
   }
   gc()
@@ -369,15 +369,20 @@ for(var in names(list_es)){
 }
 
 make_stargazer_like_table_dt(unique(agg_stag%>%
+                                      .[ctrl!='None' & ctrl != fe_min]%>%
                                       .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
                              var_map = dict_vars, 
                              treat_map = dict_vars, 
-                            # var_order = outcomes, 
+                             var_order = c('movers_w','movers_w_foreign_entrant',
+                                           'movers_w_junior','movers_w_medium','movers_w_senior',
+                                           'movers_w_Q1__cit_2y','movers_w_Q2__cit_2y', "movers_w_Q3__cit_2y", "movers_w_Q4__cit_2y"
+                                           
+                             ), 
                              pre_mean = pre_mean,
                              n_obs = n_obs,
                              r_2 = r_2,
                              drop_unlisted_vars = TRUE,
-                             save_path = 'D:\\panel_fr_res\\lab_results\\agg_mobility.tex'
+                             save_path = 'D:\\panel_fr_res\\results\\lab_results\\agg_mobility.tex'
 )
 
 

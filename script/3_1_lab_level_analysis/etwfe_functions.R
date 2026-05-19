@@ -31,7 +31,13 @@ agg_etwfe <- function(stag_model, data, R = 0, t_limit = 0){
         .[merged_inst_id_s == 'abroad' | merged_inst_id_r == 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>% .[,year := as.character(year)]
     }
-    else{
+    if(str_detect(trt, '_e')){
+      w <- data %>%
+        .[merged_inst_id_s == 'entry' ] %>%
+        .[, .(w  = .N), by = c(var, "year") ] %>%
+        .[,year := as.character(year)]
+    }
+    if(!str_detect(trt, '_a') & !str_detect(trt, '_e')) {
       w <- data %>%
         .[merged_inst_id_s != 'abroad' & merged_inst_id_r != 'abroad'] %>%
         .[, .(w  = .N), by = c(var, "year") ] %>% .[,year := as.character(year)]
@@ -172,6 +178,14 @@ dict_vars <- c("movers_w"                  =     'Total flows',
                "movers_w_own_entrant_r"    =     'Returning to entry institution',
                "movers_w_own_entrant_s"    =     'Exiting from entry institution',
                "movers_w_foreign_entrant"  =     'Foreign entrant flows', 
+               
+               
+               "movers_w_Q1__cit_2y"       =     'Q1 of productivity (first 2y)', 
+               "movers_w_Q2__cit_2y"       =     'Q2 of productivity (first 2y)', 
+               "movers_w_Q3__cit_2y"       =     'Q3 of productivity (first 2y)', 
+               "movers_w_Q4__cit_2y"       =     'Q4 of productivity (first 2y)', 
+
+               
                "acces_rce"= "Administrative autonomy",
                "date_first_idex"= "Received an IDEX",
                "fusion_date"= "Merged establishment",
@@ -336,7 +350,7 @@ make_stargazer_like_table_dt <- function(dt,
     to_vec <- function(D) if (nrow(D) == 0) rep("", length(model_ids)) else fmt_num(unlist(D))
     
     lhs <- latexify(unname(treat_map[[tr]] %||% tr))
-    lhs <- paste0('\\textbf{', str_to_sentence(str_replace(lhs,  'Administrative autonomy, |Received IDEX, |Merged establishment, ', '' )),'}')
+    lhs <- paste0('\\textbf{', str_to_sentence(str_replace(lhs,  'Administrative autonomy, |Received an IDEX, |Merged establishment, ', '' )),'}')
     line  <- function(lhs, vec) paste(lhs, paste(vec, collapse = " & "), sep = " & ")
     
     c(
@@ -393,8 +407,8 @@ make_stargazer_like_table_dt <- function(dt,
     collapse = " & "
   )
   pre_means_line= paste0('\\textit{Pre-2009 avg.} & ', paste0(pre_mean[models$var], collapse= '&'))
-  n_obs_line= paste0('N & ', paste0(n_obs[models$model_id], collapse= '&'))
-  r_2_line= paste0('Pseudo R2 & ', paste0(r_2[models$model_id], collapse= '&'))
+  n_obs_line= paste0('N & ', paste0(n_obs[models$var], collapse= '&'))
+  r_2_line= paste0('Pseudo R2 & ', paste0(r_2[models$var], collapse= '&'))
   
   # ---------------- Assemble LaTeX ----------------
   K <- nrow(models)

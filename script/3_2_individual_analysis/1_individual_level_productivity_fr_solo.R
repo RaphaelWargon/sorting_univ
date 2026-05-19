@@ -168,7 +168,7 @@ outcomes <- c('publications_raw', 'publications_reweight',
 
 sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes]
 #fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
-sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
+sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
 
 length(unique(sample_df_reg$author_id)) #128947
 nrow(unique(sample_df_reg[, list(merged_inst_id, field)])) #30583
@@ -181,12 +181,12 @@ table(unique(sample_df_reg[, list(merged_inst_id, domain, acces_rce,date_first_i
 gc()
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
 
-save_path = paste0("D:\\panel_fr_res\\results\\productivity\\treatment_by_treatment\\")
-if (!file.exists(save_path)){
-  dir.create(save_path, recursive = TRUE)
+save_path_solo = paste0("D:\\panel_fr_res\\results\\productivity\\treatment_by_treatment\\")
+if (!file.exists(save_path_solo)){
+  dir.create(save_path_solo, recursive = TRUE)
 }
 
-# Alternative : estimate treatments separately ----------------------------
+# Estimate treatments separately ----------------------------
 
 all_treatments <- c('acces_rce','date_first_idex','fusion_date')
 sample_df_reg <- sample_df_reg %>%
@@ -207,38 +207,82 @@ units <- unique(test_data[, ..unit_cols])
 list_es_solo <- list()
 
 all_outcomes <- c(outcomes, "semantic_distance")
-
-
-trend_controls_to_test <- list( NULL,
-                               c('field', 'entry_cohort','cnrs', 'city') ,
-                               c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
-                               c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile'),     
-                               c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile'),     
-                               c('field', 'entry_cohort','cnrs', 'city', 'prod_inst_n_tile'),                                
-                               c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile', 'prod_inst_n_tile'),
-                               c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile', 'prod_inst_n_tile')
+all_outcomes <- c('publications','citations','nr_source_top_10pct','nr_source_top_5pct',
+                  'new_phrase_comb_reuse','total_new_phrase_comb_reuse')
+trend_controls_to_test <- list(# NULL,
+                               #c('field', 'entry_cohort','cnrs', 'city') ,
+                               #c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
+                               #c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile'),     
+                               c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile')#,     
+                              # c('field', 'entry_cohort','cnrs', 'city', 'prod_inst_n_tile'),                                
+                              # c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile', 'prod_inst_n_tile'),
+                              # c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile', 'prod_inst_n_tile')
                                
                                 )
-
+#trend_controls_to_test <- list(c('field', 'entry_cohort','cnrs', 'REG'))
 for(trend_ctrl in trend_controls_to_test){
 list_es_solo[[paste0(trend_ctrl, collapse = '_')]] <- compute_separate_estimates(treatments = c("acces_rce",'date_first_idex'),
-                                   outcomes = all_outcomes,
+                                   outcomes = outcomes_to_keep,
                                    data = test_data,
                                    w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
+                                   #w_matching = FALSE,
                                    trend_controls = trend_ctrl,
                                    plot_event_study = TRUE,
-                                   save_event_study = TRUE, save_path = save_path, type = "feols"
+                                   save_event_study = TRUE, save_path = save_path_solo, type = "feols"
 )
 
 gc()
 
 }
 
-saveRDS(list_es_solo, paste0(save_path, 'all_regressions_matched_entry_cohort_city_field.rds'))
+chosen_spec <- "field_entry_cohort_cnrs_city_gender_prod_au_n_tile"
+list_es_solo_chosen_spec <- list_es_solo[[chosen_spec]]
+outcomes_to_keep <- c('publications','citations','nr_source_top_10pct',
+                      'total_new_phrase_comb_reuse')
 
-outcomes <- c('publications_reweight','citations_reweight','nr_source_top_5pct_reweight','nr_source_top_10pct_reweight',
-              'avg_rank_source_raw')
-agg_stag <- map(outcomes, \(outcome)
+saveRDS(list_es_solo, paste0(save_path_solo, 'regression_right_spec_matched_entry_cohort_city_field.rds'))
+list_es_solo <- readRDS(paste0(save_path_solo, 'regression_right_spec_matched_entry_cohort_city_field.rds'))
+
+
+
+agg_stag_spec_solo <- rbind(map(outcomes_to_keep, \(outcome)
+                           map(c("acces_rce",'date_first_idex'), \(treatment)
+                           list_es_solo_chosen_spec[[treatment]][[outcome]][["table_agg"]])) %>%
+                         unlist(recursive = FALSE) ) %>%
+  rbindlist() %>% distinct()
+
+pre_mean_spec_solo <- list()
+n_obs_spec_solo <- list()
+r_2_spec_solo <- list()
+for(treatment in c("acces_rce",'date_first_idex')){
+  pre_mean_spec_solo[[treatment]] <- list()
+  n_obs_spec_solo[[treatment]]    <- list()
+  r_2_spec_solo[[treatment]]      <- list()
+ 
+  for(outcome in outcomes_to_keep) {
+  pre_mean_spec_solo[[treatment]][[outcome]] <- list_es_solo_chosen_spec[[treatment]][[outcome]][["pre_mean"]]
+  n_obs_spec_solo[[treatment]][[outcome]]    <- list_es_solo_chosen_spec[[treatment]][[outcome]][["n_obs"]]
+  r_2_spec_solo[[treatment]][[outcome]]      <- round(list_es_solo_chosen_spec[[treatment]][[outcome]][['pseudo_r2']], 2)
+  }
+
+
+make_stargazer_like_table_dt(unique(agg_stag_spec_solo %>%
+                                      .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"] %>%
+                                      .[treat == treatment]), 
+                             var_map = dict_vars, 
+                             treat_map = dict_vars, 
+                             pre_mean = pre_mean_spec_solo[[treatment]],
+                             n_obs = n_obs_spec_solo[[treatment]],
+                             r_2 = r_2_spec_solo[[treatment]],
+                             var_order = outcomes_to_keep,
+                             drop_unlisted_vars = TRUE,
+                             save_path = paste0(save_path_solo, '\\', treatment, '_solo_match_',paste0(sort(c('entry_cohort','city','field')), collapse = '_') 
+                                                ,'_fe_field_entry_cohort_cnrs_city_gender_prod_au_n_tile.tex' )
+)
+
+}
+
+agg_stag <- map(all_outcomes, \(outcome)
                 map(c("acces_rce",'date_first_idex'), \(treatment)
                     map(1:length(list_es_solo), \(spec)
                         list_es_solo[[spec]][[treatment]][[outcome]][["table_agg"]]

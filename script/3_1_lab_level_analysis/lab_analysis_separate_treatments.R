@@ -22,7 +22,7 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/etwfe_functi
 
 
 
-inputpath <- "D:\\panel_fr_res\\inst_level_flows.parquet"
+inputpath <- "D:\\panel_fr_res\\data\\inst_level_flows.parquet"
 
 ds <- open_dataset(inputpath) %>%
   filter(!is.na(type_r) & !is.na(type_s) & year >=2003) %>%
@@ -115,6 +115,7 @@ ds_clean <- ds_clean %>%
     
   )]
 
+fwrite(ds_clean, "D:\\panel_fr_res\\data\\inst_level_flows_clean.csv")
 
 
 # Solo treatment estimation -----------------------------------------------
@@ -364,15 +365,25 @@ for(d in c('acces_rce',
 
 
 #resave
+
+pre_mean_solo <- list() 
+
+agg_stag_solo <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, var = '', ctrl = '') %>% .[treat != '']
+agg_stag_by_t_solo <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0,var = '',  ctrl = '') %>% .[treatment != '']
+agg_stag_by_g_solo <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0, g = 0,var = '',  ctrl = '') %>% .[treatment != '']
+
+gc()
+list_es_solo$fusion_date <- NULL
+
 for(d in names(list_es_solo)){
-  no_ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\no_ctrl\\")
-  ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\ctrl\\")
-  if (!file.exists(no_ctrl_path)){
-    dir.create(no_ctrl_path, recursive = TRUE)
-  }
-  if (!file.exists(ctrl_path)){
-    dir.create(ctrl_path, recursive = TRUE)
-  }
+  #no_ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\no_ctrl\\")
+  #ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\ctrl\\")
+  #if (!file.exists(no_ctrl_path)){
+  #  dir.create(no_ctrl_path, recursive = TRUE)
+  #}
+  #if (!file.exists(ctrl_path)){
+  #  dir.create(ctrl_path, recursive = TRUE)
+  #}
   
   sample_separate <- ds_clean
   
@@ -455,14 +466,16 @@ for(d in names(list_es_solo)){
   
   for(var in names(list_es_solo[[d]])){
     print(paste0(d, ': ', var))
-    var_path_no_ctrl= paste0(no_ctrl_path, var, '\\')
-    if (!file.exists(var_path_no_ctrl)){
-      dir.create(var_path_no_ctrl, recursive = TRUE)
-    }
-    var_path_ctrl= paste0(ctrl_path, var, '\\')
-    if (!file.exists(var_path_ctrl)){
-      dir.create(var_path_ctrl, recursive = TRUE)
-    }
+    pre_mean_solo[[d]][[var]] <- round(mean((sample_separate[as.numeric(as.character(year)) < 2009])[[var]], na.rm =T),2)
+    
+    #var_path_no_ctrl= paste0(no_ctrl_path, var, '\\')
+    #if (!file.exists(var_path_no_ctrl)){
+    #  dir.create(var_path_no_ctrl, recursive = TRUE)
+    #}
+    #var_path_ctrl= paste0(ctrl_path, var, '\\')
+    #if (!file.exists(var_path_ctrl)){
+    #  dir.create(var_path_ctrl, recursive = TRUE)
+    #}
     
     agg_stag_no_ctrl <- agg_etwfe(list_es_solo[[d]][[var]][['no_ctrl']], matched_data, t_limit = 5)%>%
       .[, var := var] %>% .[, ctrl := 'None']
@@ -477,9 +490,9 @@ for(d in names(list_es_solo)){
         geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
         labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
         theme_bw()
-      pdf(paste0(var_path_no_ctrl,var, '_', treat, '_by_t',".pdf"))
+     # pdf(paste0(var_path_no_ctrl,var, '_', treat, '_by_t',".pdf"))
       print(p)
-      dev.off() 
+    #  dev.off() 
       rm(p)
     }
     gc()
@@ -493,9 +506,9 @@ for(d in names(list_es_solo)){
         geom_hline(aes(yintercept = 0))+
         labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('First treatment period')+ ylab('Estimate and 95% CI')+
         theme_bw()
-      pdf(paste0(var_path_no_ctrl,var, '_', treat, '_by_g',".pdf"))
+     # pdf(paste0(var_path_no_ctrl,var, '_', treat, '_by_g',".pdf"))
       print(p)
-      dev.off() 
+    #  dev.off() 
       rm(p)
     }
     
@@ -517,9 +530,9 @@ for(d in names(list_es_solo)){
         geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
         labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
         theme_bw()
-      pdf(paste0(var_path_ctrl,var, '_', treat, '_by_t',".pdf"))
+     # pdf(paste0(var_path_ctrl,var, '_', treat, '_by_t',".pdf"))
       print(p)
-      dev.off() 
+     #  dev.off() 
       rm(p)
     }
     gc()
@@ -535,14 +548,17 @@ for(d in names(list_es_solo)){
         geom_hline(aes(yintercept = 0))+
         labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Treatment cohort')+ ylab('Estimate and 95% CI')+
         theme_bw()
-      pdf(paste0(var_path_ctrl,var, '_', treat, '_by_g',".pdf"))
+     # pdf(paste0(var_path_ctrl,var, '_', treat, '_by_g',".pdf"))
       print(p)
-      dev.off() 
+     #  dev.off() 
       rm(p)
     }
     gc()
     
   }}
+
+list_es_solo <- readRDS('D:\\panel_fr_res\\results_old\\lab_results_old\\all_regressions_treatment_by_treatment.rds')
+
 
 n_obs_solo <- list()
 r_2_solo <- list()
@@ -556,15 +572,20 @@ for(d in names(list_es_solo)){
     r_2_solo[[d]][[ paste0(var, " | ", fe_large)]] <- round(list_es_solo[[d]][[var]][['ctrl']]$pseudo_r2   , 5)
   }
   make_stargazer_like_table_dt(unique(agg_stag_solo %>% .[str_detect(treat, d)] %>%
+                                        .[ctrl != 'None']%>%
                                         .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
                                var_map = dict_vars, 
                                treat_map = dict_vars, 
-                               # var_order = outcomes, 
-                               pre_mean = pre_mean[[d]],
+                                var_order = c('movers_w','movers_w_foreign_entrant',
+                                              'movers_w_junior','movers_w_medium','movers_w_senior',
+                                              'movers_w_Q1__cit_2y','movers_w_Q2__cit_2y', "movers_w_Q3__cit_2y", "movers_w_Q4__cit_2y"
+                                              
+                                              ), 
+                               pre_mean = pre_mean_solo[[d]],
                                n_obs = n_obs_solo[[d]],
                                r_2 = r_2_solo[[d]],
                                drop_unlisted_vars = TRUE,
-                               save_path = paste0('D:\\panel_fr_res\\lab_results\\agg_mobility_solo_', d, '.tex')
+                               save_path = paste0('D:\\panel_fr_res\\results\\lab_results\\agg_mobility_solo_', d, '.tex')
   )
   
 }
