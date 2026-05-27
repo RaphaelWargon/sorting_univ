@@ -164,7 +164,7 @@ sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct
   .[, ':='(entry_cohort = floor(entry_year/5)*5) ]
 
 fwrite(sample_df_reg, "D:\\panel_fr_res\\sample_df_reg.csv" )
-sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
+sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
 
 
 units_univ <- unique(sample_df_reg[, .(size_2003 = mean(size_2003),
@@ -213,7 +213,7 @@ units_au <- unique(sample_df_reg[, .(  publications_pre = mean(publications* ife
                                        citations_pre = mean(citations* ifelse( year <= 2007, 1, NA ) , na.rm = T),
                                        citations_post =mean(citations * ifelse( year >= 2016, 1, NA ) , na.rm = T),
                                        entry_year = first(entry_year)
-                                     
+                                      
                                      ), by=  c('author_id', 'acces_rce','date_first_idex','fusion_date')])
 summary(units_au)
 
