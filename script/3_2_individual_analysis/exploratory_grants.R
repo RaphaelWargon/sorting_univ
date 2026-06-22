@@ -1,19 +1,19 @@
 units_au_grants <- unique(sample_df_reg%>%
                             .[, ':='(first_year_dgds = ifelse(first_year_dgds %in% 2005:2026, first_year_dgds, 0),
                                      first_year_ods = ifelse(first_year_ods %in% 2005:2026, first_year_ods, 0)
-                                     )]%>%
+                            )]%>%
                             .[, ':='(ever_dgds = as.numeric(first_year_dgds != 0),
                                      ever_ods = as.numeric(first_year_ods != 0),
                                      ever_erc = as.numeric(first_year_erc != 0)
-                                     )]%>%
+                            )]%>%
                             .[, .(  publications_pre = mean(publications* ifelse( year <= 2007, 1, NA ), na.rm = T),
-                                       publications_post = mean(publications * ifelse( year >= 2016, 1, NA ) , na.rm = T ),
-                                       citations_pre = mean(citations* ifelse( year <= 2007, 1, NA ) , na.rm = T),
-                                       citations_post =mean(citations * ifelse( year >= 2016, 1, NA ) , na.rm = T),
-                                       entry_year = first(entry_year),
-                                       ever_dgds = max(ever_dgds), ever_ods = max(ever_ods), ever_erc = max(ever_erc)
-                                       
-), by=  c('author_id', 'first_year_dgds','first_year_ods', 'first_year_erc')]) 
+                                    publications_post = mean(publications * ifelse( year >= 2016, 1, NA ) , na.rm = T ),
+                                    citations_pre = mean(citations* ifelse( year <= 2007, 1, NA ) , na.rm = T),
+                                    citations_post =mean(citations * ifelse( year >= 2016, 1, NA ) , na.rm = T),
+                                    entry_year = first(entry_year),
+                                    ever_dgds = max(ever_dgds), ever_ods = max(ever_ods), ever_erc = max(ever_erc)
+                                    
+                            ), by=  c('author_id', 'first_year_dgds','first_year_ods', 'first_year_erc')]) 
 
 table(unique(units_au_grants[, list(author_id, ever_dgds)])$ever_dgds)
 table(unique(units_au_grants[, list(author_id, ever_ods)])$ever_ods)
@@ -44,21 +44,21 @@ ever_labex <- merge(ever_labex,
                       .[, list(inst_id, domain, first_y_labex_facility)] %>%
                       .[, ever_labex_facility_level := 1],
                     by = c('inst_id','domain'), all.x = TRUE
-                    )%>%
+)%>%
   .[, ':='(yearn = as.numeric(as.character(year)),
            idn = as.numeric(str_remove(author_id, "A")),
            d1 = as.numeric(str_detect(domain, "1")),
            d2 = as.numeric(str_detect(domain, "2")),
            d3 = as.numeric(str_detect(domain, "3")),
            d4 = as.numeric(str_detect(domain, "4"))
-           )] %>%
+  )] %>%
   .[, chg_af := as.numeric(inst_id != lag(inst_id, order_by = year)), by = 'author_id'] %>%
   .[, ':='(sum_chg_af = sum(chg_af, na.rm =T),
            max_resp= max(resp, na.rm =T),
            max_award_au_total = max(award_au_total, na.rm =T),
            ever_labex_facility_au = min(ifelse(ever_labex_facility_level, year, NA ), na.rm = T ),
            first_y_labex_facility = min(first_y_labex_facility, na.rm = T)
-           ), by = 'author_id']%>%
+  ), by = 'author_id']%>%
   .[, treat_labex := ifelse(ever_labex_facility_au>first_y_labex_facility,ever_labex_facility_au ,first_y_labex_facility)] %>%
   .[, treat_labex := ifelse(is.na(treat_labex), 0, treat_labex)]
 summary(ever_labex$sum_chg_af)
@@ -85,15 +85,15 @@ table(reg_labex$treat_labex, reg_labex$domain)
 
 table(reg_labex$treat_labex)
 test_did <- did::att_gt(yname = 'citations',
-                tname = 'yearn',
-                idname = 'idn',
-                gname = 'treat_labex',
-                data = reg_labex,
-               # allow_unbalanced_panel = TRUE,
-               # faster_mode = FALSE,
-                xformla = ~ entry_cohort + d1 + d2 +d3 + d4 -1  #+ prod_au_n_tile + prod_inst_n_tile + REG#+ inst_id
-                ,control_group = 'nevertreated'
-                )
+                        tname = 'yearn',²
+                        idname = 'idn',
+                        gname = 'treat_labex',
+                        data = reg_labex,
+                        # allow_unbalanced_panel = TRUE,
+                        # faster_mode = FALSE,
+                        xformla = ~ entry_cohort + d1 + d2 +d3 + d4 -1  #+ prod_au_n_tile + prod_inst_n_tile + REG#+ inst_id
+                        ,control_group = 'nevertreated'
+)
 ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 gc()
 
@@ -130,7 +130,7 @@ for( year_treatment in c(2011:2012)){
     .[treat == 1 | ( (first_year_dgds == year_treatment |
                         first_year_ods == year_treatment)
                      & date_first_idex != 0 & acces_rce != 0
-                       )  ] %>%
+    )  ] %>%
     .[, t := year - year_treatment]%>%
     .[year >=2005]
   

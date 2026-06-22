@@ -8,7 +8,8 @@ p_load('arrow'
        ,'binsreg',
        'DescTools',
        'cowplot',
-       'MatchIt')
+       'MatchIt',
+       'did')
 wins_vars <- function(x, pct_level = 0.025){
   if(is.numeric(x)){
     #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
@@ -22,14 +23,15 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/etwfe_functi
 
 
 
-inputpath <- "D:\\panel_fr_res\\inst_level_flows.parquet"
+inputpath <- "D:\\panel_fr_res\\data\\inst_level_flows.parquet"
 
 ds <- open_dataset(inputpath) %>%
-  filter(!is.na(type_r) & !is.na(type_s) & year >=2003) %>%
+  mutate(type_r = ifelse(merged_inst_id_r == "exit", 'exit', type_r)) %>%
+  filter( ((!is.na(type_r) & !is.na(type_s))) & year >=2003)  %>%
   group_by(merged_inst_id_r, merged_inst_id_s) %>%
   mutate(max_pair = max(total)) %>%
   ungroup() %>%
-  filter(entry_year_dyad <= 2003 & max_pair >0)
+  filter( (entry_year_dyad <= 2003 & max_pair >0 ))
 gc()
 ds <- as.data.table(ds)
 nrow(ds)
@@ -79,12 +81,22 @@ ds_clean <- ds %>%
            type_fr_s = fifelse(merged_inst_id_r == 'abroad','abroad', type_fr_s)
   )] %>%
   .[, ':='(city_s = fifelse(merged_inst_id_s == 'entry','entry', city_s),
-           main_topic_s = fifelse(merged_inst_id_r == 'entry','entry', main_topic_s),
-           secteur_s = fifelse(merged_inst_id_r == 'entry','entry', secteur_s),
-           type_fr_s = fifelse(merged_inst_id_r == 'entry','entry', type_fr_s)
-  )]
+           main_topic_s = fifelse(merged_inst_id_s == 'entry','entry', main_topic_s),
+           secteur_s = fifelse(merged_inst_id_s == 'entry','entry', secteur_s),
+           type_fr_s = fifelse(merged_inst_id_s == 'entry','entry', type_fr_s)
+  )] %>%
+  .[, ':='(city_r = fifelse(merged_inst_id_r == 'exit','exit', city_s),
+           main_topic_r = fifelse(merged_inst_id_r == 'exit','exit', main_topic_s),
+           secteur_r = fifelse(merged_inst_id_r == 'exit','exit', secteur_s),
+           type_fr_r = fifelse(merged_inst_id_r == 'exit','exit', type_fr_s)
+  )] 
+
+
+  
+
 gc()
-outcomes <-c('movers', colnames(ds_clean)[str_detect(colnames(ds_clean), 'movers_w|exit')])
+
+outcomes <-c('movers', 'movers_w', colnames(ds_clean)[str_detect(colnames(ds_clean), 'movers_w_')])
 controls <- c('type_r','type_s','city_r','city_s','secteur_r','secteur_s', 'ecole_r','ecole_s','cnrs_s','cnrs_r','quant_size_r_2003','quant_size_s_2003')
 
 cols_to_keep <-c("merged_inst_id_r",'merged_inst_id_s','domain','year', 'unit',
@@ -97,30 +109,56 @@ ds_clean <- ds_clean[, ..cols_to_keep]
 rm(ds)
 gc()
 
+fwrite(ds_clean, "D:\\panel_fr_res\\data\\inst_level_flows_clean.csv")
+
+ds_clean <- fread("D:\\panel_fr_res\\data\\inst_level_flows_clean.csv")
 
 ds_clean <- ds_clean %>%
+  .[, interact_rce_idex_r := ifelse(acces_rce_r != 0 & date_first_idex_r != 0,
+                                    pmax(acces_rce_r, date_first_idex_r), 0 )] %>%
+  .[, interact_rce_idex_s := ifelse(acces_rce_s != 0 & date_first_idex_s != 0,
+                                    pmax(acces_rce_s, date_first_idex_s), 0 )] %>%
   .[, ':='(
-    acces_rce_a_s = fifelse(acces_rce_s != '0' & merged_inst_id_r == 'abroad', acces_rce_s, "0"),
-    acces_rce_a_r = fifelse(acces_rce_r != '0' & merged_inst_id_s == 'abroad', acces_rce_r, "0"),
+    acces_rce_a_s = fifelse(acces_rce_s != '0' & merged_inst_id_r == 'abroad', acces_rce_s, '0'),
+    acces_rce_a_r = fifelse(acces_rce_r != '0' & merged_inst_id_s == 'abroad', acces_rce_r, '0'),
     
-    date_first_idex_a_s = fifelse(date_first_idex_s != '0' & merged_inst_id_r == 'abroad', date_first_idex_s, "0"),
-    date_first_idex_a_r = fifelse(date_first_idex_r != '0' & merged_inst_id_s == 'abroad', date_first_idex_r, "0"),
+    date_first_idex_a_s = fifelse(date_first_idex_s != '0' & merged_inst_id_r == 'abroad', date_first_idex_s, '0'),
+    date_first_idex_a_r = fifelse(date_first_idex_r != '0' & merged_inst_id_s == 'abroad', date_first_idex_r, '0'),
     
-    fusion_date_a_s = fifelse(fusion_date_s != '0' & merged_inst_id_r == 'abroad', fusion_date_s, "0"),
-    fusion_date_a_r = fifelse(fusion_date_r != '0' & merged_inst_id_s == 'abroad', fusion_date_r, "0"),
+    fusion_date_a_s = fifelse(fusion_date_s != '0' & merged_inst_id_r == 'abroad', fusion_date_s, '0'),
+    fusion_date_a_r = fifelse(fusion_date_r != '0' & merged_inst_id_s == 'abroad', fusion_date_r, '0'),
     
-    acces_rce_e_r = fifelse(acces_rce_r != '0' & merged_inst_id_s == 'entry', acces_rce_r, "0"),
-    date_first_idex_e_r = fifelse(date_first_idex_r != '0' & merged_inst_id_s == 'entry', acces_rce_r, "0"),
-    fusion_date_e_r = fifelse(fusion_date_r != '0' & merged_inst_id_s == 'entry', acces_rce_r, "0")
+    interact_rce_idex_a_s = fifelse(interact_rce_idex_s != '0' & merged_inst_id_r == 'abroad', interact_rce_idex_s, '0'),
+    interact_rce_idex_a_r = fifelse(interact_rce_idex_r != '0' & merged_inst_id_s == 'abroad', interact_rce_idex_r, '0'),
     
+    
+    acces_rce_e_r = fifelse(acces_rce_r != '0' & merged_inst_id_s == 'entry', acces_rce_r, '0'),
+    date_first_idex_e_r = fifelse(date_first_idex_r != '0' & merged_inst_id_s == 'entry', date_first_idex_r, '0'),
+    interact_rce_idex_e_r = fifelse(interact_rce_idex_r != '0' & merged_inst_id_s == 'entry', interact_rce_idex_r, '0'),
+    fusion_date_e_r = fifelse(fusion_date_r != '0' & merged_inst_id_s == 'entry', fusion_date_r, '0'),
+    
+    acces_rce_e_s = fifelse(acces_rce_s != '0' & merged_inst_id_r == 'exit', acces_rce_r, '0'),
+    date_first_idex_e_s = fifelse(date_first_idex_s != '0' & merged_inst_id_r == 'exit', date_first_idex_r, '0'),
+    interact_rce_idex_e_s = fifelse(interact_rce_idex_s != '0' & merged_inst_id_r == 'exit', interact_rce_idex_r, '0'),
+    fusion_date_e_s = fifelse(fusion_date_s != '0' & merged_inst_id_r == 'exit', fusion_date_r, '0')
   )]
 
+ds_clean <- ds_clean %>%
+  .[ !acces_rce_r %in% c("2014", "2015")
+     &!acces_rce_s %in% c("2014", "2015")
+     &!date_first_idex_r %in% c("2014")
+     &!date_first_idex_s %in% c("2014")
+     &!fusion_date_r %in% c("2012", "2019")
+     &!fusion_date_s %in% c("2012", "2019")] %>%
+  .[type_r !='company' & type_s != 'company'] 
 
 list_g = list("acces_rce" = list( i = sort(unique(ds_clean[acces_rce_s !=0]$acces_rce_s)),
                                   j = sort(unique(ds_clean[acces_rce_r !=0]$acces_rce_r)))
               
               ,"date_first_idex" = list( i = sort(unique(ds_clean[date_first_idex_s !=0]$date_first_idex_s)),
                                          j =   sort(unique(ds_clean[date_first_idex_r !=0]$date_first_idex_r)))
+              ,"interact_rce_idex" = list( i = sort(unique(ds_clean[interact_rce_idex_s !=0]$interact_rce_idex_s)),
+                                         j =   sort(unique(ds_clean[interact_rce_idex_r !=0]$interact_rce_idex_r)))
               
               , "fusion_date" = list( i = sort(unique(ds_clean[fusion_date_s !=0]$fusion_date_s)),
                                       j = sort(unique(ds_clean[fusion_date_r !=0]$fusion_date_r)))
@@ -144,6 +182,12 @@ for(d in names(list_g) ){
     )
     formula_elements <- c(formula_elements, paste0(varname_abroad, ' + i(year,', varname_abroad, ',ref=',ref,')'))
 
+    varname_exit =paste0(d, '_e_s_g', g_i)
+    ds_clean[[varname_exit]] <- as.numeric((ds_clean[[paste0(d, '_s')]] == g_i)
+                                             & (ds_clean[['merged_inst_id_r']] == "exit")
+    )
+    formula_elements <- c(formula_elements, paste0(varname_exit, ' + i(year,', varname_exit, ',ref=',ref,')'))
+    
     
   }
   for(g_j in list_g[[d]][['j']]){
@@ -176,21 +220,28 @@ for(d in names(list_g) ){
 length(formula_elements)
 gc()
 
+
+unit_cols <- c("merged_inst_id_r",'merged_inst_id_s', 'unit',
+               'domain',# 'name_r','name_s', 
+               'acces_rce_r', 'date_first_idex_r','fusion_date_r',
+               'acces_rce_s', 'date_first_idex_s','fusion_date_s',
+               
+               'city_r', 'city_s', 'type_r','type_s',#'public_r','public_s',
+               'ecole_r','ecole_s',#'cnrs_r', 'cnrs_s',
+               "quant_size_r_2003","quant_size_s_2003",'secteur_s','secteur_r'
+)
+
 # Regression --------------------------------------------------------------
 
-ds_clean <- ds_clean %>%
-  .[ !acces_rce_r %in% c("2014", "2015")
-     &!acces_rce_s %in% c("2014", "2015")
-     &!date_first_idex_r %in% c("2014")
-     &!date_first_idex_s %in% c("2014")
-     &!fusion_date_r %in% c("2012", "2019")
-     &!fusion_date_s %in% c("2012", "2019")] %>%
-  .[type_r !='company' & type_s != 'company'] 
 
 table(ds_clean$acces_rce_r, ds_clean$acces_rce_s)
 table(ds_clean$date_first_idex_r, ds_clean$date_first_idex_s)
+table(ds_clean$interact_rce_idex_r, ds_clean$interact_rce_idex_s)
+
 table(ds_clean$fusion_date_r, ds_clean$fusion_date_s)
 gc()
+
+
 
 
 list_es <- list()
@@ -199,10 +250,62 @@ fe_min <- '| year + merged_inst_id_r^domain  +merged_inst_id_s^domain + unit'#fe
 fe_large <-  "| year + merged_inst_id_r^domain  +merged_inst_id_s^domain + unit+type_r^year + domain^year + type_s^year + type_s^type_r^year + city_r^year + city_s^year  + cnrs_r^year + cnrs_s^year + cnrs_s^cnrs_r^year + ecole_r^year + ecole_s^year + ecole_s^ecole_r^year"# + quant_size_r_2003^year + quant_size_s_2003^year+quant_size_s_2003^quant_size_r_2003^year"
 gc()
 
+trend_ctrl = c('type_r','type_s', 'type_r^type_s', 'city_r', 'city_s', 'city_r^city_s', 'cnrs_r','cnrs_s', 'cnrs_r^cnrs_s', 'ecole_r','ecole_s','ecole_r^ecole_s')
+list_es <- list()
+mob_save_path = paste0("D:\\panel_fr_res\\results\\mobility\\all_treatments\\")
+if (!file.exists(mob_save_path)){
+  dir.create(mob_save_path, recursive = TRUE)
+}
+outcomes <-c('movers', colnames(ds_clean)[str_detect(colnames(ds_clean), 'movers_w|exit')])
+
+for(trend_ctrl in trend_controls_to_test){
+  list_es[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates_etwfe(outcomes = outcomes,
+                                                                               data = ds_clean,
+                                                                               w_matching = TRUE, 
+                                                                               matching_variables = c('domain','type_s','type_r'),
+                                                                               #w_matching = FALSE,
+                                                                               trend_controls = trend_ctrl,
+                                                                               plot_event_study = TRUE,
+                                                                               save_event_study = TRUE, save_path = mob_save_path, type = "fepois",
+                                                                                formula_elements = formula_elements
+  )
+  
+  gc()
+  
+}
+
+saveRDS(list_es, file = paste0(mob_save_path, "all_regressions.rds"))
+gc()
+
+for(dom in c(1:4)){
+  list_es_domain <- list()
+  mob_save_path_domain = paste0("D:\\panel_fr_res\\results\\mobility\\all_treatments\\", as.character(dom))
+  if (!file.exists(mob_save_path_domain)){
+    dir.create(mob_save_path_domain, recursive = TRUE)
+  }
+  
+  list_es_domain[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates_etwfe(outcomes = outcomes,
+                                                                               data = ds_clean %>% .[str_detect(domain, as.character(dom))],
+                                                                               w_matching = TRUE, 
+                                                                               matching_variables = c('type_s','type_r'),
+                                                                               #w_matching = FALSE,
+                                                                               trend_controls = trend_ctrl,
+                                                                               plot_event_study = TRUE,
+                                                                               save_event_study = TRUE, save_path = mob_save_path_domain, type = "fepois",
+                                                                               formula_elements = formula_elements
+  )
+  
+  gc()
+  saveRDS(list_es_domain, file = paste0(mob_save_path_domain, "all_regressions.rds"))
+  
+}
+
+
+
 
 for(var in setdiff(outcomes, names(list_es))){
 list_es[[var]] <- list()
-var_path = paste0("D:\\panel_fr_res\\lab_results\\full_no_fe\\", var)
+var_path = paste0("D:\\panel_fr_res\\lab_results\\w_interactions\\full_no_fe\\", var)
 if (!file.exists(var_path)){
   dir.create(var_path, recursive = TRUE)
 }

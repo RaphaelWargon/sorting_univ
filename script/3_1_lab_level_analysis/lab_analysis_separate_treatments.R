@@ -121,23 +121,14 @@ fwrite(ds_clean, "D:\\panel_fr_res\\data\\inst_level_flows_clean.csv")
 # Solo treatment estimation -----------------------------------------------
 
 
-p_load('did', 'MatchIt')
+p_load()
 all_treatments <- c('acces_rce','date_first_idex','fusion_date')
 
-unit_cols <- c("merged_inst_id_r",'merged_inst_id_s', 'unit',
-               'domain',# 'name_r','name_s', 
-               'acces_rce_r', 'date_first_idex_r','fusion_date_r',
-               'acces_rce_s', 'date_first_idex_s','fusion_date_s',
-               
-               'city_r', 'city_s', 'type_r','type_s',#'public_r','public_s',
-               'ecole_r','ecole_s',#'cnrs_r', 'cnrs_s',
-               "quant_size_r_2003","quant_size_s_2003",'secteur_s','secteur_r'
-)
 fe_min <- '| year + merged_inst_id_r^domain  +merged_inst_id_s^domain + unit'#fe_large <- paste0(fe_min, '+ type_s^year + type_r^year + public_s^year + public_r^year + city_s^year + city_r^year')
 #fe_large <- paste0(fe_min,  '+', paste0(paste0(controls, '^year'), collapse = ' + '))
 fe_large <-  "| year + merged_inst_id_r^domain  +merged_inst_id_s^domain + unit+type_r^year + domain^year + type_s^year + type_s^type_r^year + city_r^year + city_s^year  + cnrs_r^year + cnrs_s^year + cnrs_s^cnrs_r^year + ecole_r^year + ecole_s^year + ecole_s^ecole_r^year"# + quant_size_r_2003^year + quant_size_s_2003^year+quant_size_s_2003^quant_size_r_2003^year"
 
-list_es_solo <- list(acces_rce = list(), date_first_idex = list(), fusion_date = list())
+list_es_solo <- list()
 
 agg_stag_solo <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, var = '', ctrl = '') %>% .[treat != '']
 agg_stag_by_t_solo <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0,var = '',  ctrl = '') %>% .[treatment != '']
@@ -147,19 +138,55 @@ gc()
 
 pre_mean_solo <- list() 
 
-for(d in c('acces_rce',
-           'date_first_idex'#,
+
+# Regression --------------------------------------------------------------
+
+trend_controls_to_test <- list(# NULL,
+  #c('field', 'entry_cohort','cnrs', 'city') ,
+  #c('field', 'entry_cohort','cnrs', 'city', 'gender'),     
+  #c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile'),     
+  c('type_r', 'type_s', 'type_s^type_r', 
+    'city_r','city_s',"cnrs_r","cnrs_s",'cnrs_s^cnrs_r',
+    'ecole_r + ecole_s + ecole_s^ecole_r'
+    )#,     
+  # c('field', 'entry_cohort','cnrs', 'city', 'prod_inst_n_tile'),                                
+  # c('field', 'entry_cohort','cnrs', 'city', 'prod_au_n_tile', 'prod_inst_n_tile'),
+  # c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile', 'prod_inst_n_tile')
+  
+)
+#trend_controls_to_test <- list(c('field', 'entry_cohort','cnrs', 'REG'))
+
+
+mob_save_path_solo = paste0("D:\\panel_fr_res\\results\\mobility\\treatment_by_treatment\\")
+if (!file.exists(mob_save_path_solo)){
+  dir.create(mob_save_path_solo, recursive = TRUE)
+}
+
+for(trend_ctrl in trend_controls_to_test){
+  list_es_solo[[paste0(trend_ctrl, collapse = '_')]] <- compute_separate_estimates_etwfe(treatments = c("acces_rce",'date_first_idex'),
+                                                                                   outcomes = c('movers_w'),
+                                                                                   data = ds_clean,
+                                                                                   w_matching = TRUE, 
+                                                                                   matching_variables = c('domain','type_s','type_r'),
+                                                                                   #w_matching = FALSE,
+                                                                                   trend_controls = trend_ctrl,
+                                                                                   plot_event_study = TRUE,
+                                                                                   save_event_study = TRUE, save_path = mob_save_path_solo, type = "fepois"
+  )
+  
+  gc()
+  
+}
+
+saveRDS(list_es_solo, paste0(mob_save_path_solo, 'all_regressions.rds'))
+list_es <- readRDS(paste0(mob_save_path_solo, 'all_regressions.rds'))
+
+
+
+for(d in c('acces_rce'#,
+         #  'date_first_idex'#,
            # "fusion_date"
 )){
-  
-  no_ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\no_ctrl\\")
-  ctrl_path = paste0("D:\\panel_fr_res\\lab_results\\heterogeneity\\",d, "\\ctrl\\")
-  if (!file.exists(no_ctrl_path)){
-    dir.create(no_ctrl_path, recursive = TRUE)
-  }
-  if (!file.exists(ctrl_path)){
-    dir.create(ctrl_path, recursive = TRUE)
-  }
   
   sample_separate <- ds_clean
   
@@ -239,7 +266,8 @@ for(d in c('acces_rce',
   
   gc()
   
-  for(var in setdiff(outcomes[str_detect(outcomes, '_w')], names(list_es_solo[[d]])) ){
+  for(var in c('movers_w')#setdiff(outcomes[str_detect(outcomes, '_w')], names(list_es_solo[[d]])) 
+      ){
     var_path_no_ctrl= paste0(no_ctrl_path, var, '\\')
     if (!file.exists(var_path_no_ctrl)){
       dir.create(var_path_no_ctrl, recursive = TRUE)

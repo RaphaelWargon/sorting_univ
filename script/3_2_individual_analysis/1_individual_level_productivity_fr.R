@@ -164,7 +164,7 @@ sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct
   .[, ':='(entry_cohort = floor(entry_year/5)*5) ]
 
 fwrite(sample_df_reg, "D:\\panel_fr_res\\sample_df_reg.csv" )
-sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
+sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
 
 
 units_univ <- unique(sample_df_reg[, .(size_2003 = mean(size_2003),
@@ -263,50 +263,44 @@ table(unique(sample_df_reg[, list(inst_id, field, acces_rce,date_first_idex,fusi
 gc()
 # Write specification ---------------------------------------------------
 
-list_g = list( "acces_rce" = sort(unique(sample_df_reg[acces_rce !=0]$acces_rce))
-               ,"date_first_idex" = sort(unique(sample_df_reg[date_first_idex !=0]$date_first_idex))
-               , "fusion_date" = sort(unique(sample_df_reg[fusion_date !=0]$fusion_date))
-)
-gc()
+sample_df_reg <- sample_df_reg %>%
+  .[, interact_rce_idex := ifelse(acces_rce != 0 & date_first_idex != 0,
+                                  pmax(acces_rce, date_first_idex), 0 )]
 
-
-formula_elements <- c()
-all_varnames <- c()
-for(d in c('acces_rce'#
-           , 'date_first_idex', 'fusion_date'#,'rce_idex'
-)){
-  for(g_i in list_g[[d]]){
-    print(paste0(d, ': ', g_i))
-    varname =paste0(d, '_', g_i)
-    ref = as.character(as.numeric(g_i)-1)
-    sample_df_reg[[varname]] <- as.numeric((sample_df_reg[[paste0(d)]] == g_i))
-    formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
-  }}
-
-formula_elements_w_combinations <- formula_elements
-if(length(all_varnames) >= 2){
-  pairs <- combn(all_varnames, 2, simplify = FALSE)
-  interaction_elements <- sapply(pairs, function(p) paste0(p[1], ':', p[2]))
-  for(interaction_el in interaction_elements){
-    
-    ref = max()
-    formula_elements_w_combinations <- c(formula_elements_w_combinations, paste0(interaction_el + i('year')))
-  }
-  formula_elements <- c(formula_elements, interaction_elements)
-  all_varnames <- c(all_varnames, varname)
+make_list_g <- function(df, cols) {
+  setNames(
+    lapply(cols, function(col) {
+      sort(unique(df[get(col) != 0][[col]]))
+    }),
+    cols
+  )
 }
 
-formula_elements_w_combinations
+list_g <- make_list_g(sample_df_reg, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
+
+formula_elements <- c()
+formula_w_interactions <- c()
+for(d in names(list_g)){
+  for(g_i in list_g[[d]]){
+    varname =paste0(d, '_', g_i)
+    print(varname)
+    ref = as.character(as.numeric(g_i)-1)
+    sample_df_reg[[varname]] <- as.numeric((sample_df_reg[[paste0(d)]] == g_i))
+    if(!str_detect(d, 'interact')){
+    formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+    }
+    formula_w_interactions <- c(formula_w_interactions, paste0(varname, ' + i(year,', varname, ',ref=',ref,')') )
+    }
+  }
 
 
-gc()
 
 rm(sample_df)
 gc()
 
-formula_no_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_min))
-formula_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), '| author_id + inst_id_domain + year +',
-                                   paste0(c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile'), collapse = "^year + "), '^year'))
+#formula_no_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_min))
+#formula_ctrl <- as.formula(paste0( 'y ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), '| author_id + inst_id_domain + year +',
+#                                   paste0(c('field', 'entry_cohort','cnrs', 'city', 'gender', 'prod_au_n_tile'), collapse = "^year + "), '^year'))
 list_es = list()
 
 all_outcomes <- c(outcomes, "semantic_distance")
@@ -343,7 +337,8 @@ for(trend_ctrl in trend_controls_to_test){
                                                                         id_vars = c('author_id','inst_id_domain'),
                                                                          trend_controls = trend_ctrl,
                                                                          plot_event_study = TRUE,
-                                                                         save_event_study = TRUE, save_path = save_path, type = "feols"
+                                                                         save_event_study = TRUE, save_path = save_path, type = "feols",
+                                                                         formula_elements = formula_elements
   )
   
   gc()
@@ -359,10 +354,11 @@ saveRDS(list_es[[chosen_spec]], paste0(save_path, 'all_regressions_matched_entry
 
 gc()
 
+
 agg_stag <- map(outcomes, \(outcome)
-                    map(1:length(list_es), \(spec)
-                        list_es[[spec]][[outcome]][["table_agg"]]
-                    )
+                map(1:length(list_es), \(spec)
+                    list_es[[spec]][[outcome]][["table_agg"]]
+                )
 ) |>
   unlist(recursive = FALSE) |>
   rbindlist() %>% distinct()
@@ -370,7 +366,7 @@ agg_stag <- map(outcomes, \(outcome)
 
 agg_stag_spec <- rbind(map(outcomes_to_keep, \(outcome)
                            list_es_chosen_spec[[outcome]][["table_agg"]]
-                )) |>
+)) |>
   rbindlist() %>% distinct()
 
 
@@ -381,13 +377,13 @@ for(outcome in outcomes_to_keep) {
   pre_mean_spec[[outcome]]  <- list_es_chosen_spec[[outcome]][["pre_mean"]]
   n_obs_spec[[outcome]]    <- list_es_chosen_spec[[outcome]][["n_obs"]]
   r_2_spec[[outcome]]      <- round(list_es_chosen_spec[[outcome]][['pseudo_r2']], 2)
-  }
-  
-  
+}
+
+
 
 
 make_stargazer_like_table_dt(unique(agg_stag_spec %>%
-                               .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"]), 
+                                      .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"]), 
                              var_map = dict_vars, 
                              treat_map = dict_vars, 
                              pre_mean = pre_mean_spec,
@@ -398,6 +394,66 @@ make_stargazer_like_table_dt(unique(agg_stag_spec %>%
                              save_path = paste0(save_path, '\\match_',paste0(sort(c('entry_cohort','city','field')), collapse = '_') 
                                                 ,'_fe_field_entry_cohort_cnrs_city_gender_prod_au_n_tile.tex' )
 )
+
+
+
+
+save_path_int = paste0("D:\\panel_fr_res\\results\\productivity\\all_treatments\\interactions\\")
+if (!file.exists(save_path_int)){
+  dir.create(save_path_int, recursive = TRUE)
+}
+for(trend_ctrl in trend_controls_to_test){
+  list_es[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = outcomes_to_keep,
+                                                                         data = sample_df_reg,
+                                                                         w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
+                                                                         #w_matching = FALSE,
+                                                                         id_vars = c('author_id','inst_id_domain'),
+                                                                         trend_controls = trend_ctrl,
+                                                                         plot_event_study = TRUE,
+                                                                         save_event_study = TRUE, save_path = save_path_int, type = "feols",
+                                                                         formula_elements = formula_w_interactions
+  )
+  
+  gc()
+  
+}
+saveRDS(list_es[[chosen_spec]], paste0(save_path_int, 'all_regressions_matched_entry_cohort_city_field_fe_field_entry_cohort_cnrs_city_gender.rds'))
+list_es <- readRDS(paste0(save_path_int, 'all_regressions_matched_entry_cohort_city_field_fe_field_entry_cohort_cnrs_city_gender.rds'))
+
+
+
+
+agg_stag_spec <- rbind(map(outcomes_to_keep, \(outcome)
+                           list_es[[outcome]][["table_agg"]]
+)) |>
+  rbindlist() %>% distinct()
+
+
+pre_mean_spec <- list()
+n_obs_spec <-list()
+r_2_spec <- list()
+for(outcome in outcomes_to_keep) {
+  pre_mean_spec[[outcome]]  <- list_es_chosen_spec[[outcome]][["pre_mean"]]
+  n_obs_spec[[outcome]]    <- list_es_chosen_spec[[outcome]][["n_obs"]]
+  r_2_spec[[outcome]]      <- round(list_es_chosen_spec[[outcome]][['pseudo_r2']], 2)
+}
+
+
+make_stargazer_like_table_dt(unique(agg_stag_spec %>%
+                                      .[treat != 'fusion_date'] %>%
+                                      .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"]), 
+                             var_map = dict_vars, 
+                             treat_map = dict_vars, 
+                             pre_mean = pre_mean_spec,
+                             n_obs = n_obs_spec,
+                             r_2 = r_2_spec,
+                             var_order = outcomes_to_keep,
+                             drop_unlisted_vars = TRUE,
+                             save_path = paste0(save_path_int, '\\match_',paste0(sort(c('entry_cohort','city','field')), collapse = '_') 
+                                                ,'_fe_field_entry_cohort_cnrs_city_gender_prod_au_n_tile.tex' )
+)
+
+
 
 
 

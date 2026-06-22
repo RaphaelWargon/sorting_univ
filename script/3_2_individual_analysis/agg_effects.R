@@ -468,14 +468,15 @@ compute_all_estimates <- function(outcomes = NULL,
                                   save_event_study = FALSE,
                                   save_path = '',
                                   type = 'fepois',
-                                  comparison_group = 'never-treated'
+                                  comparison_group = 'never-treated',
+                                  formula_elements 
 ){
   list_es_all = list()
 
   units <- unique(data[, ..unit_cols]) %>%
     .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)]
   print(table(units[["treat"]]))
-  
+  cols_to_keep <- c(outcomes, id_vars, 'year', trend_controls, str_extract(formula_elements, '^[a-z_0-9]*'))
   formula_ctrl <- paste0( 'y ~ y_minus_i_lt + ',  
                           paste0(formula_elements, collapse= '+'), 
                           '|  year + ',
@@ -498,7 +499,7 @@ compute_all_estimates <- function(outcomes = NULL,
     print(table(matched_units[["treat"]]))
     
     to_keep_in_matched_units <- c(id_vars, "subclass")
-    
+    cols_to_keep <- c(cols_to_keep, 'subclass')
     matched_units <- matched_units %>%
       .[, ..to_keep_in_matched_units]
     
@@ -508,6 +509,7 @@ compute_all_estimates <- function(outcomes = NULL,
       .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)] %>%
       .[treat == 1]
   }
+  data <- data %>% .[, ..cols_to_keep]
   for(var in outcomes ){
     
     list_es_all[[var]] <- list()
@@ -1042,6 +1044,7 @@ idex_dict_dates = c(
 dict_vars <- c('acces_rce'= 'Administrative autonomy',
                'date_first_idex'='Received an IDEX',
                'fusion_date'= "Merged establishment",
+               'interact_rce_idex' = 'Autonomy + IDEX interaction',
                "publications_raw" = 'Publications',
                "citations_raw"='Citations',
                "publications" = 'Publications',

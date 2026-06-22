@@ -8,7 +8,7 @@ library('pacman')
 #install.packages("DIDmultiplegtDYN", force = TRUE)
 #devtools::install_github("CdfInnovLab/didImputation", force = TRUE)
 
-library(didImputation)
+#library(didImputation)
 
 p_load('arrow'
        ,'data.table'
@@ -29,13 +29,13 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 
-inputpath <- "D:\\panel_fr_res\\inst_pub_y_not_field.parquet"
-source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
+inputpath <- "D:\\panel_fr_res\\data\\inst_pub_y.parquet"
+source(paste0(dirname(dirname(rstudioapi::getSourceEditorContext()$path)), '/agg_effects.R'))
 ds <- open_dataset(inputpath) 
 ds <- as.data.table(ds) %>%
   .[, ":="(first_y_lab = min(year, na.rm = T),
            n_obs = n_distinct(year), 
-           min_n_au = min(n_au, na.rm = TRUE) ), by = c('merged_inst_id')] %>%
+           min_n_au = min(n_au, na.rm = TRUE) ), by = c('inst_id')] %>%
   .[, paris := fifelse(city == 'Paris', 1, 0)] %>%
   .[,":="(#idex = ifelse(is.na(idex), 'no_idex', idex),
     acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
@@ -44,23 +44,19 @@ ds <- as.data.table(ds) %>%
   .[, t := year-2007] 
 
 gc()
-cities <- fread('D:\\panel_fr_res\\v_commune_2025.csv')
+cities <- unique(fread('D:\\panel_fr_res\\data\\v_commune_2025.csv') %>% .[TYPECOM == "COM"] %>%
+                   .[, list(LIBELLE,REG,DEP)]) %>%
+  .[, mult_names := .N, by= LIBELLE] %>%
+  .[mult_names == 1] %>% .[, mult_names := NULL]
 cols_to_wins <- c('n_au', "publications_raw","citations_raw","nr_source_btm_50pct_raw",
                   "nr_source_mid_40pct_raw","nr_source_top_20pct_raw","nr_source_top_10pct_raw",
                   "nr_source_top_5pct_raw")
 
-orsay_to_recode <- c('I3019441195','I4210109968','I4210162675','I4210097733','I4210151467','I4210115729','I2799857465','I4210121618','I4210118056')
 ds_clean <- ds %>%
-  #.[is.na(fusion_date) | fusion_date >=2017] %>%
-  
-  #.[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
+  .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
   .[year >=1997  & year < 2020] %>%
-  .[, acces_rce := fifelse(merged_inst_id %in% orsay_to_recode, "2010", acces_rce)] %>%
-  .[, date_first_idex := fifelse(merged_inst_id %in% orsay_to_recode, "2012", date_first_idex)] %>%
-  .[, fusion_date := fifelse(merged_inst_id %in% orsay_to_recode, "2019", fusion_date)] %>%
-  .[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
+  #.[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
   .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
-  # .[first_y_lab <= 2003 ] %>%
   .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
            avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
   .[acces_rce != "2014" & date_first_idex != "2014" & fusion_date != "2012"]%>%
@@ -72,54 +68,44 @@ ds_clean <- ds %>%
            citations_2003 = max(as.numeric(year == 2003)*citations_raw ),
            nr_source_top_5pct_raw_2003 = max(as.numeric(year == 2003)*nr_source_top_5pct_raw ),
            last_year_lab = max(year)
-  ), by = c('merged_inst_id')]%>%
-  .[first_y_lab <= 2003 & n_au_2003 >0 & merged_inst_id !="I4210149833"
-  ] %>%
+  ), by = c('inst_id')]%>%
+  .[first_y_lab <= 2003 & n_au_2003 >5  ] %>%
   .[, city:= case_when(city == "Saint-Etienne" ~ 'Saint-Étienne',
                        city == "St-Malo" ~ "Saint-Malo",
                        .default  = city
   )] 
 
 ds_clean <- merge(ds_clean, cities %>% .[, city:=LIBELLE], by ='city', all.x = TRUE)%>%
-  .[!is.na(LIBELLE) | country == "GB"]
+  .[!is.na(LIBELLE) ]
 
 ds_clean <- ds_clean %>%
   .[, quartile_n_au_2003 := cut(n_au_2003,
-                                quantile(unique(ds_clean[, list(merged_inst_id, n_au_2003)])$n_au_2003,
-                                         probs = c(0.0,0.25,0.5,0.75,1) 
+                                unique(quantile(unique(ds_clean[, list(inst_id, n_au_2003)])$n_au_2003,
+                                                probs = c(0.0,0.25,0.5,0.75,1) )
                                 ), include.lowest = T
                                 , labels = FALSE
   )] %>%
-  .[, quartile_pub_2003 := cut(avg_publications_2003,
-                                   quantile(unique(ds_clean[, list(merged_inst_id, avg_publications_2003)])$avg_publications_2003,
-                                            probs = c(0.0,0.25,0.5,0.75,1) 
-                                   ), include.lowest = T
-                                   , labels = FALSE
-  )] %>%
-  .[, quartile_cit_2003 := cut(avg_citations_2003,
-                                   quantile(unique(ds_clean[, list(merged_inst_id, avg_citations_2003)])$avg_citations_2003,
-                                            probs = c(0.0,0.25,0.5,0.75,1) 
+  .[, quartile_avg_pub_2003 := cut(avg_publications_2003,
+                                   unique(quantile(unique(ds_clean[, list(inst_id, avg_publications_2003)])$avg_publications_2003,
+                                                   probs = c(0.0,0.25,0.5,0.75,1) )
                                    ), include.lowest = T
                                    , labels = FALSE
   )] %>%
   
-  .[, quartile_top5pct_2003 := cut(nr_source_top_5pct_raw_2003,
-                                   unique(quantile(unique(ds_clean[, list(merged_inst_id, nr_source_top_5pct_raw_2003)])$nr_source_top_5pct_raw_2003,
-                                            probs = c(0.0,0.25,0.5,0.75,1) 
-                                   )), include.lowest = T
-                                   , labels = FALSE
-  )] %>%
   
-  
-  .[, n_inst_city := n_distinct(merged_inst_id), by = 'city'] %>%
+  .[, n_inst_city := n_distinct(inst_id), by = 'city'] %>%
   .[, any_treatment := ifelse(acces_rce != "0" | date_first_idex != '0' | fusion_date != "0", 1, 0)] %>%
-  .[ any_treatment ==1 | country == "GB" ] %>%
-  .[, capital := fifelse(city == 'London' | city == 'Paris', 1, 0)] %>%
-  .[, cnrs :=  fifelse(is.na(cnrs), 0, cnrs)]
+  .[, cnrs :=  fifelse(is.na(cnrs), 0, cnrs)] %>%
+  .[, ':='(idn = as.numeric(paste0(str_remove(inst_id, 'I'), '0', str_remove(domain,','))),
+           yearn = as.numeric(as.character(year)),
+           acces_rce = as.numeric(as.character(acces_rce)),
+           date_first_idex = as.numeric(as.character(date_first_idex)),
+           fusion_date = as.numeric(as.character(fusion_date))
+  )]
 
 
 examiner <- unique(ds_clean %>%
-                     .[, list(merged_inst_id, name, city, type, cnrs,
+                     .[, list(inst_id, name, city, type, cnrs,
                               first_y_lab, acces_rce, date_first_idex, fusion_date,
                               n_au_2003)])
 examiner_ctrl <- examiner[acces_rce==0&date_first_idex==0&fusion_date ==0]
@@ -131,18 +117,64 @@ summary(ds_clean$min_n_au)
 summary(ds$n_au)
 
 gc()
-nrow(unique(ds_clean[, list(merged_inst_id)])) #1887
-table(unique(ds_clean[, list(merged_inst_id, acces_rce)])$acces_rce)
-table(unique(ds_clean[, list(merged_inst_id, date_first_idex)])$date_first_idex)
-table(unique(ds_clean[, list(merged_inst_id, fusion_date)])$fusion_date)
-
-table(unique(ds_clean[, list(merged_inst_id, acces_rce)])$acces_rce)
-table(unique(ds_clean[, list(merged_inst_id, date_first_idex)])$date_first_idex)
-table(unique(ds_clean[, list(merged_inst_id, fusion_date)])$fusion_date)
+nrow(unique(ds_clean[, list(inst_id)])) #3486
+table(unique(ds_clean[, list(inst_id, acces_rce)])$acces_rce)
+table(unique(ds_clean[, list(inst_id, date_first_idex)])$date_first_idex)
+table(unique(ds_clean[, list(inst_id, fusion_date)])$fusion_date)
 
 
-test<-unique(ds_clean[, list(merged_inst_id, fusion_date, n_au_2003, avg_publications_2003,min_n_au)])[min_n_au <5]
-test<-unique(ds_clean[, list(merged_inst_id, fusion_date, year, publications_raw, n_au_2003, avg_publications_2003)])[merged_inst_id == "I68947357" & field =="24"]
+test_did <- did::att_gt(yname = 'avg_citations',
+                        tname = 'yearn',
+                        idname = 'idn',
+                        gname = 'acces_rce',
+                        data = ds_clean %>%
+                          .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
+                          .[year %in% 2003:2020 & type %in% c('education','facility','government')
+                            #& type_fr !='undefined'
+                          ],
+                        # allow_unbalanced_panel = TRUE,
+                        # faster_mode = FALSE,
+                        xformla = ~ REG + type + domain + cnrs + quartile_n_au_2003 + quartile_avg_pub_2003 + paris + secteur + type_fr 
+                        , base_period = 'universal'
+                        ,control_group = 'nevertreated'
+)
+ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
+gc()
+ggdid(test_did, ncol = 2)
+
+
+
+test_did <- did::att_gt(yname = 'avg_citations',
+                        tname = 'yearn',
+                        idname = 'idn',
+                        gname = 'acces_rce',
+                        data = ds_clean %>%
+                          .[, ratio_subv_propre := (as.numeric(anr_investissements_d_avenir) + 
+                                                      as.numeric(anr_hors_investissements_d_avenir)
+                                                    + as.numeric(contrats_et_prestations_de_recherche_hors_anr)
+                          )/(
+                            as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
+                          .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
+                          .[year %in% 2003:2020 & type %in% c('education','facility','government')
+                            & type_fr !='undefined'
+                            & (is)
+                          ],
+                        # allow_unbalanced_panel = TRUE,
+                        # faster_mode = FALSE,
+                        xformla = ~ REG + type + domain + cnrs + quartile_n_au_2003 + quartile_avg_pub_2003 + paris + secteur + type_fr 
+                        , base_period = 'universal'
+                        ,control_group = 'nevertreated'
+)
+ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
+
+
+
+
+
+table(ds_clean$type_fr)
+
+test<-unique(ds_clean[, list(inst_id, fusion_date, n_au_2003, avg_publications_2003,min_n_au)])[min_n_au <5]
+test<-unique(ds_clean[, list(inst_id, fusion_date, year, publications_raw, n_au_2003, avg_publications_2003)])[inst_id == "I68947357" & field =="24"]
 
 list_g = list( "acces_rce" = sort(unique(ds_clean[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(ds_clean[date_first_idex !=0]$date_first_idex))
@@ -165,8 +197,8 @@ for(d in c('acces_rce'#
 length(formula_elements)
 
 
-fe_min = ' |merged_inst_id + year'
-fe_large = paste0(  ' |merged_inst_id + '
+fe_min = ' |inst_id + year'
+fe_large = paste0(  ' |inst_id + '
                     ,'year '
                     ,'+ type^year '
                     #,'+ public^year'
@@ -212,8 +244,8 @@ dict_vars <- c('acces_rce'= 'University autonomy',
                'public'='Public Status',
                'ecole'='Grande Ecole status',
                'main_topic'='Main field',
-               "|merged_inst_id"= 'Institution',
-               " |merged_inst_id"= 'Institution',
+               "|inst_id"= 'Institution',
+               " |inst_id"= 'Institution',
                "n_au_2003" = 'Number of authors in 2003'
 )
 outcomes <- c('n_au',
@@ -247,7 +279,7 @@ for(var in outcomes){
   es_stag <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_min))
                      , data = ds_clean
                      ,mem.clean = TRUE,lean = TRUE, fixef.tol = 1E-4,
-                     ,cluster = c('merged_inst_id')
+                     ,cluster = c('inst_id')
   ) 
   time_taken <- Sys.time() - start_time
   print(time_taken)
@@ -302,7 +334,7 @@ for(var in outcomes){
   es_stag_ctrl <- fepois( as.formula(paste0(var, ' ~ ', paste0(formula_elements, collapse= '+'), fe_large))
                           , data = ds_clean,
                           ,mem.clean = TRUE,lean = TRUE, fixef.tol = 1E-4,
-                          ,cluster = c('merged_inst_id')
+                          ,cluster = c('inst_id')
   ) 
   time_taken <- Sys.time() - start_time
   print(time_taken)
