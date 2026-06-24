@@ -111,31 +111,31 @@ gc()
 sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" )
 sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count()
 gc()
-
+trt_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), '[0-9]y')]
 df_reg <- sample_df_reg %>%
   .[ #acces_rce_5y != 0 & 
     date_first_idex_0_1y == 0
-    & acces_rce_0_1y != 2013
+    & !acces_rce_2_3y %in% 2013:2015
     & !str_detect(domain, ',')
     #& first_year_dgds >= 2005
     #& (first_year_dgds <= acces_rce_5y| acces_rce_5y ==0)
   ] %>%
-  .[, acces_rce_0_1y := as.numeric(acces_rce_0_1y)] 
+  .[, (trt_cols ) := lapply(.SD, as.numeric), .SDcols = trt_cols] 
 
-table(unique(df_reg[,list(author_id,acces_rce_0_1y)])$acces_rce_0_1y)
+table(unique(df_reg[,list(author_id,acces_rce_2_3y)])$acces_rce_2_3y)
 
 test_did <- did::att_gt(yname = 'publications_raw',
                         tname = 'year_n',
                         idname = 'idn',
-                        gname = 'acces_rce_0_1y',
+                        gname = 'acces_rce_2_3y',
                         data = df_reg #%>% .[acces_rce_0_1y!=0]
                         ,
                         #allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
                         
-                        xformla = ~ entry_cohort + domain + pub_04_07 #+ inst_id
+                        xformla = ~ entry_cohort + domain + pub_n_tile #+ inst_id
                         , base_period = 'universal'
-                        ,control_group = 'nevertreated'
+                        ,control_group = 'notyettreated'
 )
 ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 gc()
@@ -150,9 +150,9 @@ test_did <- did::att_gt(yname = 'citations_raw',
                         #allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
 
-                        xformla = ~ entry_cohort + field + pub_04_07 #+ inst_id
+                        xformla = ~ entry_cohort + domain + min_cnrs + pub_n_tile #+ inst_id
                         , base_period = 'universal'
-                        ,control_group = 'nevertreated'
+                        ,control_group = 'notyettreated'
 )
 ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 gc()
@@ -178,20 +178,20 @@ ggdid(test_did, ncol = 3)
 
 
 
-test_did <- did::att_gt(yname = "change_af",
+test_did <- did::att_gt(yname = "in_acces_rce",
                         tname = 'year_n',
                         idname = 'idn',
-                        gname = 'acces_rce_0_1y',
-                        data = df_reg 
-                        ,
-                        allow_unbalanced_panel = TRUE,
+                        gname = 'acces_rce_2_3y',
+                        data = df_reg
+                        ,allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
                         
-                         xformla = ~ entry_year + domain + min_cnrs + pub_n_tile   #+ inst_id
+                        # xformla = ~ entry_year + domain + min_cnrs + pub_n_tile   #+ inst_id
                         , base_period = 'universal'
                         ,control_group = 'notyettreated'
 )
-ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE, min_e = -6, max_e = 8))
+ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE #, min_e = -6, max_e = 8
+            ))
 gc()
 ggdid(test_did, ncol = 3)
 
@@ -201,8 +201,8 @@ ggdid(test_did, ncol = 3)
 test_did <- did::att_gt(yname = "in_universite",
                         tname = 'year_n',
                         idname = 'idn',
-                        gname = 'acces_rce_2_3y',
-                        data = df_reg %>% .[acces_rce_2_3y!=0]
+                        gname = 'acces_rce_0_1y',
+                        data = df_reg
                         ,
                         #allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
@@ -235,23 +235,47 @@ ggdid(test_did, ncol = 3)
 
 
 df_reg <- sample_df_reg %>%
-  .[, new_rce_2_5y := max(as.numeric( ((year == acces_rce_2_5y-4)
-                                     | (year == control_2_5y - 4) )
-                                      & change_af == 1)), by = 'author_id']%>%
-  .[ #acces_rce_5y != 0 & 
-    date_first_idex_0_1y == 0
-    & ((acces_rce_2_5y == 2009 &new_rce_2_5y ==1) | (  
-      control_2_5y == 2009 & 
-        acces_rce_2_5y ==0) )
+  .[, ratio_subv_propre := (as.numeric(anr_investissements_d_avenir) + 
+                              as.numeric(anr_hors_investissements_d_avenir)
+                            #+ as.numeric(contrats_et_prestations_de_recherche_hors_anr)
+                            #+ as.numeric(subventions_de_la_region)
+                            # + as.numeric(subventions_union_europeenne)
+                            
+  )/(
+    as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
+  .[ date_first_idex_0_1y == 0 & date_first_idex_2_3y == 0
+   & acces_rce_0_1y %in% 0:2012
     & !str_detect(domain, ',')
     #& first_year_dgds >= 2005
     #& (first_year_dgds <= acces_rce_5y| acces_rce_5y ==0)
   ] %>%
-  .[, acces_rce_0_1y := as.numeric(acces_rce_0_1y)]  %>%
-  .[, acces_rce := ifelse(acces_rce_2_5y!= 0, 1, 0)] %>%
-  .[, same_status := ifelse((acces_rce_2_5y !=0 & in_acces_rce ==1)|
-                              (acces_rce_2_5y ==0& in_acces_rce==0), 1,0)]
+  .[, (paste0('lag_', mobility_cols)):= lapply(.SD, shift, n= 1, type = 'lag'), by = 'author_id',
+    .SDcols = mobility_cols] %>%
+  #.[, (paste0('lag_', mobility_cols)):=lapply(.SD, replace_na), .SDcols = (paste0('lag_', mobility_cols))]%>%
+  .[, acces_rce := ifelse(acces_rce_0_1y!= 0, 1, 0)] %>%
+  .[, same_status := ifelse((acces_rce_0_1y !=0 & in_acces_rce ==1)|
+                                (acces_rce_0_1y ==0& in_acces_rce==0), 1,0)]%>%
+  .[, ':='(all_chg = sum(new_af +change_af),
+           all_acces_rce = sum(in_acces_rce)),by= 'author_id'] %>%
+  .[all_chg==0 & (acces_rce==1 | all_acces_rce ==0 )]
 
+summary(df_reg[!is.na(ratio_subv_propre)]$ratio_subv_propre)
+
+test_feols <- feols(as.formula(paste0('citations_raw ~ sunab(acces_rce_0_1y, year, 0)'
+                                      #, '+', paste0( paste0('lag_', mobility_cols), collapse = ' + ')
+                                      ,'| author_id + year '
+                                      #,'+ entry_cohort^year'
+                                      #,'+ field^year'
+                                      #,'+ min_cnrs^year'
+                                      ##,'+ city_set^year'
+                                      #,'+ pub_n_tile^year'
+                                      #,'+ cit_n_tile^year'
+))
+,data = df_reg
+, cluster = 'author_id'
+)
+
+iplot(test_feols)
 
 
 
@@ -260,26 +284,30 @@ mobility_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), '^i
 replace_na <- function(x) ifelse(is.na(x), 0, x)
 setorder(sample_df_reg, author_id, year)
 sample_separate_acces_rce <-  sample_df_reg %>% 
-  #.[ date_first_idex_0_1y != 0 & in_type_company ==0 & in_type_healthcare==0] %>%
+  .[ date_first_idex_0_1y == 0 & in_type_company ==0 & in_type_healthcare==0 & 
+       (acces_rce_0_1y !=0) ] %>%
   .[, (paste0('lag_', mobility_cols)):= lapply(.SD, shift, n= 1, type = 'lag'), by = 'author_id',
     .SDcols = mobility_cols] %>%
-  .[, (paste0('lag_', mobility_cols)):=lapply(.SD, replace_na), .SDcols = (paste0('lag_', mobility_cols))]%>%
+  .[!acces_rce_0_1y %in% 2013:2015] %>%
   .[, same_status_move := ifelse(in_acces_rce == lag_in_acces_rce , 1, 0)] %>%
   .[, move_trt_trt := ifelse(in_acces_rce == 1 & lag_in_acces_rce ==1, 1, 0)] %>%
   .[, move_trt_ctrl := ifelse(in_acces_rce ==0 & lag_in_acces_rce == 1, 1, 0)] %>%
   .[, move_ctrl_trt := ifelse(in_acces_rce == 1 & lag_in_acces_rce ==0, 1, 0)] %>%
-  .[, move_ctrl_ctrl := ifelse(in_acces_rce ==0 & lag_in_acces_rce == 0, 1, 0)] 
-test_feols <- feglm(as.formula(paste0('same_status_move ~ sunab(acces_rce_0_1y, year, 0)'
-                   , '+', paste0( paste0('lag_', mobility_cols), collapse = ' + ')
+  .[, move_ctrl_ctrl := ifelse(in_acces_rce ==0 & lag_in_acces_rce == 0, 1, 0)]  %>%
+  .[acces_rce_0_1y!=0] %>%
+  .[inst_id_set != '']
+test_feols <- feols(as.formula(paste0('in_universite ~ sunab(acces_rce_0_1y, year, 2009)'
+                                   #   ,"+ lag_new_af"
+                   #, '+', paste0( paste0('lag_', mobility_cols), collapse = ' + ')
                     ,'| author_id + year'
                    ,'+ entry_year^year'
                    ,'+ domain^year'
-                   ,'+ min_cnrs^year'
-                   ,'+ city_set^year'
-                   ,'+ pub_n_tile^year'
-                   ,'+ cit_n_tile^year'
+                   #,'+ min_cnrs^year'
+                   #,'+ city_set^year'
+                   #,'+ pub_n_tile^year'
+                   #,'+ cit_n_tile^year'
                    ))
-                    ,data = sample_separate_acces_rce
+                    ,data = sample_df_reg
                    , cluster = 'author_id'
                     , family = "binomial"
                     )
@@ -287,14 +315,14 @@ test_feols <- feglm(as.formula(paste0('same_status_move ~ sunab(acces_rce_0_1y, 
 iplot(test_feols)
 
 
-test <- sample_separate_acces_rce %>% .[in_type_company==0]%>% .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce_0_1y'), .SD= c( mobility_cols,"same_status")] %>%
+test <- df_reg %>% .[in_type_company==0]%>% .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce_0_1y'), .SD= unique(c(outcomes, mobility_cols))] %>%
   .[, acces_rce :=as.factor(acces_rce_0_1y)]
 
-ggplot(test[!acces_rce_0_1y%in%2013:2015][, t:=year-acces_rce_0_1y])+geom_line(aes(x=year, y=in_acces_rce, color=acces_rce))
+ggplot(test[!acces_rce_0_1y%in%2013:2015 ][, t:=year-acces_rce_0_1y])+geom_line(aes(x=year, y=citations_raw, color=acces_rce))
 
 
 
-test <- sample_df_reg %>% 
+²test <- sample_df_reg %>% 
   .[acces_rce_0_1y==0 & in_acces_rce == 1 & year ==2009]
 
 test1 <- sample_df_reg %>% .[author_id=="A5000067707"]%>%
@@ -328,7 +356,7 @@ for(d in names(list_g)){
     formula_w_interactions <- c(formula_w_interactions, paste0(varname, ' + i(year,', varname, ',ref=',ref,')') )
   }
 }
-test <- compute_all_estimates(outcomes = c('citations'),
+test <- compute_all_estimates(outcomes = c('citations_raw'),
                               data = sample_df_reg,
                              # w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
                               w_matching = FALSE,
@@ -338,4 +366,9 @@ test <- compute_all_estimates(outcomes = c('citations'),
                               #save_event_study = TRUE, save_path = save_path, type = "feols",
                               formula_elements = formula_elements
 )
+
+
+
+# grant_regressions -------------------------------------------------------
+
 

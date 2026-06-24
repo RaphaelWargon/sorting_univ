@@ -1,93 +1,62 @@
-sample_df_reg <- sample_df_reg %>%
-  .[, any_treatment := as.numeric(acces_rce != 0 | date_first_idex !=0 | fusion_date != 0)] %>%
-  .[!is.na(any_treatment)]%>%
-  .[, inst_id := paste0(merged_inst_id, '_', domain)]
+rm(list = ls())
 
-fe_min <- '|  year + author_id + author_id^merged_inst_id '
-fe_large = paste0(  fe_min
-                    #,'+ type^year '
-                    #,'+ gender^year'
-                    #,'+ public^year'
-                    #,'+ ecole^year'
-                    ,'+ cnrs^year'
-                    ,'+ domain^year'
-                    ,'+ entry_year^year'
-                    ,'+ prod_au_n_tile^year'
-                    ,'+ prod_inst_n_tile^year'
-                    #,'+ size_n_tile^year'
-                    ,'+ city^year'
-                    ,'+ n_inst_y^year'
-                    
+gc()
+#install.packages('devtools')
+library('pacman')
+p_load('arrow'
+       ,'data.table'
+       ,'fixest'
+       ,'tidyverse'
+       ,'dplyr','magrittr','tidyr','ggplot2'
+       ,'binsreg',
+       'DescTools',
+       'cowplot',
+       'did',
+       'MatchIt',
+       'boot'#,
+       #'DIDmultiplegt',
+       #"DIDmultiplegtDYN"#,'didimputation'
 )
-gc()
-formula_no_ctrl <- as.formula(paste0( 'any_treatment ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_min))
-formula_ctrl <- as.formula(paste0( 'any_treatment ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_large))
-list_es = list()
-
-agg_stag <- data.table(treat = '', est = 0, std = 0, t= 0, pvalue = 0, pvalue_pretrend= 0, type = '', comparison_group = '',  var = '', ctrl = '') %>% .[treat != '']
-agg_stag_by_t <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0,  t= 0, n = '', comparison_group = '', var = '',  ctrl = '') %>% .[treatment != '']
-agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_value = 0, g = 0, n = '', comparison_group = '', var = '',  ctrl = '') %>% .[treatment != '']
-
-gc()
-
-sample_df_reg$y <- sample_df_reg[["citations_reweight"]]
-
-sample_df_reg <- sample_df_reg %>%
-  .[, ':='(y_lt = sum(y)), by = c('merged_inst_id',"field", 'year')] %>%
-  .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
-
-start_time <- Sys.time()
-test_roy_model_no_ctrl <- feglm(formula_no_ctrl, data = sample_df_reg, family = 'binomial',
-                        cluster = c('merged_inst_id','author_id')
-                        )
-time_taken <- Sys.time() -start_time
-print(time_taken)
-iplot(test_roy_model)
-
-sample_df_reg %>%
-  .[, max_any_treatment := max(any_treatment), by = 'author_id']
-nrow(sample_df_reg[any_treatment != max_any_treatment])
-
-test <- glm(as.formula(paste0( 'any_treatment ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+')))
-  , family= 'binomial', data = sample_df_reg %>% .[!is.na(y_minus_i_lt) & y_minus_i_lt <Inf ])
-summary(test)
+wins_vars <- function(x, pct_level = 0.01){
+  if(is.numeric(x)){
+    #Winsorize(x, probs = c(0, 1-pct_level), na.rm = T)
+    Winsorize(x, val = quantile(x, probs = c(0, 1-pct_level), na.rm = T))
+  } else {x}
+}
+source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
 
 
-data_test <- sample_df_reg %>% .[type %in% c('government','education','facility')]
-table(data_test$acces_rce)
-gc()
+sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
 
-fe_min <- '|  year '
-fe_large = paste0(  fe_min
-                    #,'+ type^year '
-                    #,'+ gender^year'
-                    #,'+ public^year'
-                    #,'+ ecole^year'
-                    #,'+ cnrs^year'
-                    ,'+ domain^year'
-                    ,'+ entry_year^year'
-                    ,'+ prod_au_n_tile'
-                    ,'+ prod_inst_n_tile'
-                    ,'+ size_n_tile'
-                    ,'+ REG'
-                    #,'+ n_inst_y^year'
-                    
-)
-gc()
-formula_no_ctrl <- as.formula(paste0( 'any_treatment ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_min))
-formula_ctrl <- as.formula(paste0( 'any_treatment ~ y_minus_i_lt + ',  paste0(formula_elements, collapse= '+'), fe_large))
-
-
-test_roy <- feglm(formula_ctrl, data = data_test, family = 'binomial',
-                  cluster = c('inst_id','author_id')
-)
-iplot(test_roy)  
-gc()
+save_path = paste0("D:\\panel_fr_res\\results\\roy_model\\")
+if (!file.exists(save_path)){
+  dir.create(save_path, recursive = TRUE)
+}
 
 
 
-test <- sample_df_reg %>% .[, first_date_cnrs := min( ifelse(cnrs == 1, year, NA), na.rm = TRUE), by = 'author_id'] %>%
-  .[!is.na(first_date_cnrs)] %>%
-  .[, post_cnrs_entry := as.numeric(year >= first_date_cnrs)]%>%
-  .[, .(mean_cnrs = mean(cnrs)), by = c('post_cnrs_entry')]
-test
+
+df_reg_roy_sep <- sample_df_reg %>%
+   #.[date_first_idex==0] %>%
+  .[, in_acces_rce := fifelse(acces_rce == 0, 0, 1)] %>%
+  .[, ':='(inst_set = paste(sort(unique(inst_id)), collapse = ","),
+           max_in_acces_rce = max(in_acces_rce)
+           ), by = c("author_id", "year")] %>%
+  .[, new_af := str_detect(lag(inst_set, order_by = year), inst_id), by = 'author_id'] %>%
+  .[, chg_af := as.numeric(inst_set != lag(inst_set, order_by = year)), by = 'author_id'] %>%
+  .[, (paste0('lag_', c('new_af','chg_af','in_acces_rce') )):= lapply(.SD, shift, n= 1, type = 'lag'), by = 'author_id',
+    .SDcols = c('new_af','chg_af','in_acces_rce')] 
+  
+
+test_feols <- feols(in_acces_rce ~ sunab(acces_rce, year, 2009)#+ lag_new_af + lag_chg_af
+                    |
+                      author_id + inst_id #+ entry_year^year + domain^year + cnrs^year + city^year
+                    ,data = df_reg_roy_sep
+                      )
+iplot(test_feols)
+
+ggplot(df_reg_roy_sep %>%
+         .[, .(in_acces_rce = sum(in_acces_rce),
+               out_acces_rce = sum(1-in_acces_rce)), by= c('year')])+
+  geom_line(aes(x=year, y = in_acces_rce))+
+  geom_line(aes(x=year, y = out_acces_rce), linetype = 'dashed')
