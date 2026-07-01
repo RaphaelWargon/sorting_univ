@@ -78,7 +78,7 @@ sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct
 
 
 sample_df_reg <- sample_df_reg %>%
-  .[, ':='(pub_n_tile = cut(cit_04_07, unique(quantile(unique(sample_df_reg[, list(author_id, cit_04_07)])$cit_04_07,
+  .[, ':='(pub_n_tile = cut(pub_04_07, unique(quantile(unique(sample_df_reg[, list(author_id, pub_04_07)])$pub_04_07,
                                                                   probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
   ] %>% 
   .[, ':='(cit_n_tile = cut(cit_04_07, unique(quantile(unique(sample_df_reg[, list(author_id, cit_04_07)])$cit_04_07,
@@ -109,6 +109,8 @@ rm(ds)
 gc()
 
 sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" )
+sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
+
 sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count()
 gc()
 trt_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), '[0-9]y')]
@@ -124,18 +126,20 @@ df_reg <- sample_df_reg %>%
 
 table(unique(df_reg[,list(author_id,acces_rce_2_3y)])$acces_rce_2_3y)
 
-test_did <- did::att_gt(yname = 'publications_raw',
+test_did <- did::att_gt(yname = 'citations_raw',
                         tname = 'year_n',
                         idname = 'idn',
                         gname = 'acces_rce_2_3y',
-                        data = df_reg #%>% .[acces_rce_0_1y!=0]
+                        data = df_reg #%>% .[!str_detect(field, ',') & !field %in% c('15', '18','29','30','34','35')]
                         ,
-                        #allow_unbalanced_panel = TRUE,
+                        allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
                         
-                        xformla = ~ entry_cohort + domain + pub_n_tile #+ inst_id
+                       # xformla = ~ entry_cohort + domain 
+
+                        #+ inst_id
                         , base_period = 'universal'
-                        ,control_group = 'notyettreated'
+                        ,control_group = 'nevertreated'
 )
 ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 gc()
@@ -261,17 +265,17 @@ df_reg <- sample_df_reg %>%
 
 summary(df_reg[!is.na(ratio_subv_propre)]$ratio_subv_propre)
 
-test_feols <- feols(as.formula(paste0('citations_raw ~ sunab(acces_rce_0_1y, year, 0)'
+test_feols <- feols(as.formula(paste0('publications_raw ~ sunab(acces_rce_0_1y, year, 0)'
                                       #, '+', paste0( paste0('lag_', mobility_cols), collapse = ' + ')
                                       ,'| author_id + year '
-                                      #,'+ entry_cohort^year'
-                                      #,'+ field^year'
+                                      # ,'+ entry_cohort^year'
+                                      # ,'+ field^year'
                                       #,'+ min_cnrs^year'
-                                      ##,'+ city_set^year'
+                                      #,'+ city_set^year'
                                       #,'+ pub_n_tile^year'
                                       #,'+ cit_n_tile^year'
 ))
-,data = df_reg
+,data = df_reg %>% .[acces_rce_0_1y != 2013]
 , cluster = 'author_id'
 )
 
@@ -300,8 +304,8 @@ test_feols <- feols(as.formula(paste0('in_universite ~ sunab(acces_rce_0_1y, yea
                                    #   ,"+ lag_new_af"
                    #, '+', paste0( paste0('lag_', mobility_cols), collapse = ' + ')
                     ,'| author_id + year'
-                   ,'+ entry_year^year'
-                   ,'+ domain^year'
+                   #,'+ entry_year^year'
+                   #,'+ domain^year'
                    #,'+ min_cnrs^year'
                    #,'+ city_set^year'
                    #,'+ pub_n_tile^year'
