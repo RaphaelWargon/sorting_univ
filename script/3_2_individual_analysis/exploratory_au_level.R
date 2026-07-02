@@ -52,7 +52,7 @@ table(ds$control_0_1y)
 sample_df_reg <- ds %>%
   .[, year_n := as.numeric(as.character(year))] %>%
   .[!str_detect(idex_set, "annulee")] %>%
-  .[, cit_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * publications_raw ), by = 'author_id'] %>%
+  .[, pub_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * publications_raw ), by = 'author_id'] %>%
   .[, cit_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * citations_raw ), by = 'author_id'] %>%
   .[pub_04_07 >=2] %>%
   .[str_count(field, ',')<=1]%>%
@@ -108,11 +108,75 @@ fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" )
 rm(ds)
 gc()
 
-sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" )
+sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" ) 
 sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
 
-sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count()
+sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #112788
 gc()
+
+
+# Stayers sample ----------------------------------------------------------
+
+stayers <- sample_df_reg %>%
+  .[, ':='(all_chg = sum(new_af +change_af),
+           all_acces_rce = sum(in_acces_rce)),by= 'author_id'] %>%
+  .[all_chg == 0] %>%
+  .[,':='(acces_rce  = acces_rce_0_1y,
+          date_first_idex =date_first_idex_0_1y,
+          fusion_date = fusion_date_0_1y,
+          interact_rce_idex = interact_rce_idex_0_1y)]
+
+stayers %>%
+  .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce'), .SD= c('publications_raw','citations_raw')]%>%
+  ggplot() + geom_line(aes(x=year, y = publications_raw, color = factor(acces_rce)))
+
+table(stayers$acces_rce)
+table(stayers$acces_rce)
+
+
+unit_cols <- c("author_id", "domain","field", "subfield","gender", "entry_year","last_year",
+               "entry_cohort", "pub_04_07","cit_04_07","min_cnrs","pub_n_tile",'min_cnrs' ,
+               'acces_rce','date_first_idex','fusion_date','interact_rce_idex'
+               )
+
+list_g <- make_list_g(stayers, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
+
+formula_elements <- c()
+formula_w_interactions <- c()
+for(d in names(list_g)){
+  for(g_i in list_g[[d]]){
+    varname =paste0(d, '_', g_i)
+    print(varname)
+    ref = as.character(as.numeric(g_i)-1)
+    stayers[[varname]] <- as.numeric((stayers[[paste0(d)]] == g_i))
+    if(!str_detect(d, 'interact')){
+      formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+    }
+    formula_w_interactions <- c(formula_w_interactions, paste0(varname, ' + i(year,', varname, ',ref=',ref,')') )
+  }
+}
+
+
+test <- compute_all_estimates(outcomes = c('publications_raw','citations_raw', 'nr_source_top_5pct_raw'),
+                              data = stayers,
+                              w_matching = TRUE, matching_variables = c('entry_cohort','domain'),
+                              #w_matching = FALSE,
+                              id_vars = c('author_id'),
+                              trend_controls = c('entry_cohort','domain','min_cnrs'),
+                              plot_event_study = TRUE,
+                              #save_event_study = TRUE, save_path = save_path, 
+                              type = "feols",
+                              formula_elements = formula_w_interactions,
+                              peer_effects = FALSE
+)
+
+
+
+
+
+# Old ---------------------------------------------------------------------
+
+
 trt_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), '[0-9]y')]
 df_reg <- sample_df_reg %>%
   .[ #acces_rce_5y != 0 & 

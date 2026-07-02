@@ -29,9 +29,9 @@ wins_vars <- function(x, pct_level = 0.01){
   } else {x}
 }
 
-inputpath <- "D:\\panel_fr_res\\data\\inst_pub_y.parquet"
+inputpath <- "D:\\panel_fr_res\\data\\inst_field_year_panel_mob_prod.parquet"
 inputpath_cities <- 'D:\\panel_fr_res\\data\\v_commune_2025.csv'
-if(!exists(inputpath)){
+if(!dir.exists(inputpath)){
   inputpath <- 'C:\\Users\\rapha\\Desktop\\inst_pub_y.parquet'
   inputpath_cities <- 'C:\\Users\\rapha\\Desktop\\v_commune_2025.csv'
 }
@@ -40,14 +40,14 @@ source(paste0(dirname(dirname(rstudioapi::getSourceEditorContext()$path)), '/agg
 ds <- open_dataset(inputpath) 
 ds <- as.data.table(ds) %>%
   .[, ":="(n_obs = n_distinct(year), 
-           min_n_au = min(n_au, na.rm = TRUE) ), by = c('inst_id')] %>%
+           min_total_w = min(total_w, na.rm = TRUE) ), by = c('inst_id')] %>%
   .[, paris := fifelse(city == 'Paris', 1, 0)] %>%
   .[, idex :=sapply(idex, paste, collapse = ", ")]%>%
   .[, parent_id :=sapply(parent_id, paste, collapse = ", ")] %>%
   .[,":="(#idex = ifelse(is.na(idex), 'no_idex', idex),
-    acces_rce = ifelse(is.na(acces_rce), "0", acces_rce),
-    date_first_idex  = ifelse(is.na(date_first_idex ), "0", date_first_idex),
-    fusion_date = ifelse(is.na(fusion_date), "0", fusion_date))]%>%
+    acces_rce = ifelse(is.na(acces_rce), "0", as.character(acces_rce)),
+    date_first_idex  = ifelse(is.na(date_first_idex ), "0", as.character(date_first_idex)),
+    fusion_date = ifelse(is.na(fusion_date), "0", as.character(fusion_date)) )]%>%
   # recode last errors
   .[, ':='(acces_rce=  case_when(str_detect(parent_id, "I4405256580") | inst_id == 'I4405256580' ~"2010",
                                  str_detect(parent_id, "I126425946") | inst_id == 'I126425946' ~"2010",
@@ -67,6 +67,7 @@ ds <- as.data.table(ds) %>%
 
 gc()
 
+
 cities_recoded = c('Saint-Aubin' = '91','Saint-Pierre' = '974','Bagneux' = '92','Bièvres' = '91','Castres' = '81',
                    "Changé" = "53",'Chappes' = "63","Châtillon" = "92",'Floirac' = "33","Francheville"= "21",
                    "Genay" = "69","La Garde" = "83","La Rochelle" = '17',"Léry" = '21',"Massy" = "91",
@@ -83,24 +84,24 @@ cities <-unique(fread(inputpath_cities) %>% .[TYPECOM == "COM"] %>%
                          .default = LIBELLE)]
 cities <- cities[is.na(cities_recoded[LIBELLE]) | DEP == cities_recoded[LIBELLE]]
 
-cols_to_wins <- c('n_au', "publications_raw","citations_raw","nr_source_btm_50pct_raw",
-                  "nr_source_mid_40pct_raw","nr_source_top_20pct_raw","nr_source_top_10pct_raw",
-                  "nr_source_top_5pct_raw")
+cols_to_wins <- colnames(ds)[23:425]
+ds$first_year_lab <- ds$`min(year AS first_year_lab)`
+
+ds$`min(year AS first_year_lab)` <- NULL
 
 ds_clean <- ds %>%
   .[, (cols_to_wins) := lapply(.SD, wins_vars, pct_level =0.025) , .SDcols = cols_to_wins] %>%
   .[year >=1997  & year < 2020] %>%
   #.[, fusion_date := fifelse(fusion_date == "2023", "0", fusion_date)] %>%
-  .[, n_au := fifelse(is.na(n_au), 0, n_au)] %>%
-  .[, ':='(avg_publications = fifelse(n_au >0, publications_raw/n_au, 0),
-           avg_citations =    fifelse(n_au >0, citations_raw/n_au, 0))] %>%
+  .[, ':='(avg_publications = fifelse(total_w >0, publications/total_w, 0),
+           avg_citations =    fifelse(total_w >0, citations/total_w, 0))] %>%
   .[acces_rce != "2014" & date_first_idex != "2014" & fusion_date != "2012"]%>%
-  .[, ":="(max_n_au_2003 = max(as.numeric(year <= 2003)*n_au ),
-           min_n_au = min(n_au),
+  .[, ":="(max_total_w_2003 = max(as.numeric(year <= 2003)*total_w ),
+           min_total_w = min(total_w),
            avg_publications_2003 = max(as.numeric(year == 2003)*avg_publications ),
            avg_citations_2003 = max(as.numeric(year == 2003)*avg_citations ),
-           publications_2003 = max(as.numeric(year == 2003)*publications_raw ),
-           citations_2003 = max(as.numeric(year == 2003)*citations_raw ),
+           publications_2003 = max(as.numeric(year == 2003)*publications ),
+           citations_2003 = max(as.numeric(year == 2003)*citations ),
            nr_source_top_5pct_raw_2003 = max(as.numeric(year == 2003)*nr_source_top_5pct_raw ),
            last_year_lab = max(year)
   ), by = c('inst_id')]%>%
@@ -120,8 +121,8 @@ ds_clean <- ds_clean %>%
                             + as.numeric(contrats_et_prestations_de_recherche_hors_anr)
   )/(
     as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
-  .[, quartile_n_au_2003 := cut(max_n_au_2003,
-                                unique(quantile(unique(ds_clean[, list(inst_id, max_n_au_2003)])$max_n_au_2003,
+  .[, quartile_total_w_2003 := cut(max_total_w_2003,
+                                unique(quantile(unique(ds_clean[, list(inst_id, max_total_w_2003)])$max_total_w_2003,
                                                 probs = c(0.0,0.25,0.5,0.75,1) )
                                 ), include.lowest = T
                                 , labels = FALSE
@@ -148,7 +149,7 @@ gc()
 examiner <- unique(ds_clean %>%
                      .[, list(inst_id, name, city, type, cnrs,
                               first_year_lab, acces_rce, date_first_idex, fusion_date,
-                              max_n_au_2003)])
+                              max_total_w_2003)])
 
 
 examiner_total <- unique(ds %>%
@@ -157,11 +158,11 @@ examiner_total <- unique(ds %>%
 
 examiner_ctrl <- examiner[acces_rce==0&date_first_idex==0&fusion_date ==0 & type != "company"]
 summary(ds_clean$n_obs)
-summary(ds_clean$n_au)
+summary(ds_clean$total_w)
 
-summary(ds_clean$min_n_au)
+summary(ds_clean$min_total_w)
 
-summary(ds$n_au)
+summary(ds$total_w)
 
 gc()
 nrow(unique(ds_clean[, list(inst_id)])) #2996
@@ -179,8 +180,8 @@ unit_cols <- c('inst_id','domain','name',
                'n_inst_city',
                'type_fr','secteur',
                
-               'max_n_au_2003','avg_publications_2003','avg_citations_2003','publications_2003','citations_2003',
-               'quartile_n_au_2003','quartile_avg_pub_2003'
+               'max_total_w_2003','avg_publications_2003','avg_citations_2003','publications_2003','citations_2003',
+               'quartile_total_w_2003','quartile_avg_pub_2003'
                )
 
 units <- unique(ds_clean  %>%
@@ -194,50 +195,69 @@ table(units_rce$acces_rce)
 
 match_rce <- matchit(any_treatment ~
                          type  + domain + REG 
-                        + quartile_n_au_2003
-                       # + quartile_avg_pub_2003
+                        + quartile_total_w_2003
+                        + quartile_avg_pub_2003
   
-  ,units_rce,method = 'exact'
+  ,units_rce[!is.na(domain)],method = 'exact'
 )
 matched_units_rce <- as.data.table(match.data(match_rce)) %>%
   .[, acces_rce_ctrl := max(acces_rce), by = "subclass"]
   
-table(matched_units_rce$acces_rce,matched_units_rce$acces_rce_ctrl)
+table(matched_units_rce$acces_rce)
 
 matched_rce <- merge(ds_clean %>%
                        .[, inst_id_domain := paste0(inst_id,domain)],
                       matched_units_rce%>%
                         .[, list(inst_id, domain, subclass)], by = c('inst_id','domain'))
 matched_rce  %>% .[] %>%
-  .[, .(mean_n_au = mean(avg_citations, na.rm=TRUE)), 
+  .[, .(mean_total_w = mean(total_w, na.rm=TRUE)), 
              by = .(year, any_treatment)] %>%
-  ggplot(aes(year, mean_n_au, color = factor(any_treatment))) +
+  ggplot(aes(year, mean_total_w, color = factor(any_treatment))) +
   geom_line()
 
 
 summary(matched_rce$ratio_subv_propre)
-test <- fepois(citations_raw~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
-              matched_rce %>% .[ratio_subv_propre<=0.14 | is.na(ratio_subv_propre) ],
-              cluster = 'inst_id_domain'
-             # ,weights = (matched_rce %>% .[ratio_subv_propre >=0.14 | is.na(ratio_subv_propre) ])$max_n_au_2003
+test <- feols(c(total_w_Q1__cit_2y/total_w,total_w_Q2__cit_2y/total_w,total_w_Q4__cit_2y/total_w,total_w_Q4__cit_2y/total_w)~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
+              matched_rce# %>% .[ratio_subv_propre<=0.14 | is.na(ratio_subv_propre) ]
+              ,cluster = 'inst_id_domain'
+             # ,weights = (matched_rce %>% .[ratio_subv_propre >=0.14 | is.na(ratio_subv_propre) ])$max_total_w_2003
               )
 iplot(test)
 
-test <- fepois(avg_citations~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
-              matched_rce,
-              cluster = 'inst_id_domain'
-              ,weights = matched_rce$max_n_au_2003
+
+test <- feols(c(total_w_foreign_entrant/total_w,total_w_under_10y/total_w)~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
+              matched_rce# %>% .[ratio_subv_propre<=0.14 | is.na(ratio_subv_propre) ]
+              ,cluster = 'inst_id_domain'
+              # ,weights = (matched_rce %>% .[ratio_subv_propre >=0.14 | is.na(ratio_subv_propre) ])$max_total_w_2003
 )
 iplot(test)
 
 
-test_agg <- fepois(c(n_au, publications_raw,
-                     citations_raw,
+test <- feols(c(citations_coau_foreign_entrant) ~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
+               matched_rce %>% .[ratio_subv_propre<=0.14 | is.na(ratio_subv_propre) ]
+               ,cluster = 'inst_id_domain'
+               # ,weights = (matched_rce %>% .[ratio_subv_propre >=0.14 | is.na(ratio_subv_propre) ])$max_total_w_2003
+)
+iplot(test)
+
+
+summary(matched_rce$avg_citations)
+
+test <- feols(avg_citations~ sunab(acces_rce,year, 0) | inst_id_domain + year + subclass^year,
+              matched_rce,
+              cluster = 'inst_id_domain'
+             # ,weights = matched_rce$max_total_w_2003
+)
+iplot(test)
+
+
+test_agg <- fepois(c(total_w, publications,
+                     citations,
                      avg_publications,
                      avg_citations)~ sunab(acces_rce,year, -1) | inst_id_domain + year + subclass^year,
                matched_rce  ,
                cluster = 'inst_id_domain'
-              # ,weights = matched_rce$max_n_au_2003
+              # ,weights = matched_rce$max_total_w_2003
 )
 iplot(test_agg)
 pretest <- lapply(test_agg, wald, keep = "year::-[0-9]")
@@ -252,21 +272,67 @@ agg_results
 lapply(test_agg, aggregate, agg = "cohort")
 
 # regs --------------------------------------------------------------------
+cols_to_ratio <- c("total_w_Q1__cit","total_w_Q1__cit_2y","total_w_Q2__cit","total_w_Q2__cit_2y","total_w_Q3__cit","total_w_Q3__cit_2y","total_w_Q4__cit","total_w_Q4__cit_2y",
+                   "total_w_from_abroad","total_w_from_cnrs","total_w_foreign_entrant", "total_w_women", "total_w_men","total_w_medium", "total_w_senior","total_w_junior")
 
+ds_reg <- ds_clean %>%
+  .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
+  .[year %in% 2003:2020 & type %in% c('education','facility','government')
+    #& type_fr !='undefined'
+  ] %>%
+  .[,public:=as.numeric(secteur=="public")] %>%
+  .[, ecole := as.numeric(type_fr == "École")] %>%
+  .[, (str_replace(cols_to_ratio, 'total_w', "share")) := lapply(.SD, \(x) x / total_w), .SDcols = cols_to_ratio ] %>%
+  .[, ':='(share_below_median = share_Q1__cit + share_Q2__cit,
+           share_above_median = share_Q3__cit +share_Q4__cit,
+           share_below_median_2y = share_Q1__cit_2y + share_Q2__cit_2y,
+           share_above_median_2y = share_Q3__cit_2y +share_Q4__cit_2y
+           
+           )]
 
-
-test_did <- did::att_gt(yname = 'avg_citations',
+gc()
+test_did <- did::att_gt(yname = 'share_Q4__cit_2y',
                         tname = 'yearn',
                         idname = 'idn',
                         gname = 'acces_rce',
-                        data = ds_clean %>%
-                          .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
-                          .[year %in% 2003:2020 & type %in% c('education','facility','government')
-                            #& type_fr !='undefined'
-                          ],
+                        data = ds_reg
+                          ,
                         # allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
-                        xformla = ~ REG + type + domain + cnrs + quartile_n_au_2003 + quartile_avg_pub_2003 + paris + secteur + type_fr 
+                        xformla = ~ REG + type + domain + cnrs + quartile_total_w_2003 + quartile_avg_pub_2003 + paris + public + ecole
+                        , base_period = 'universal'
+                        ,control_group = 'notyettreated'
+)
+ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
+gc()
+ggdid(test_did, ncol = 2)
+
+test_did <- did::att_gt(yname = 'share_foreign_entrant',
+                        tname = 'yearn',
+                        idname = 'idn',
+                        gname = 'acces_rce',
+                        data = ds_reg
+                        ,
+                        # allow_unbalanced_panel = TRUE,
+                        # faster_mode = FALSE,
+                        xformla = ~ REG + type + domain + cnrs + quartile_total_w_2003 + quartile_avg_pub_2003 + paris + public + ecole
+                        , base_period = 'universal'
+                        ,control_group = 'nevertreated'
+)
+ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
+gc()
+
+
+
+test_did <- did::att_gt(yname = 'citations',
+                        tname = 'yearn',
+                        idname = 'idn',
+                        gname = 'acces_rce',
+                        data = ds_reg
+                        ,
+                        # allow_unbalanced_panel = TRUE,
+                        # faster_mode = FALSE,
+                        xformla = ~ REG + type + domain + cnrs + quartile_total_w_2003 + quartile_avg_pub_2003 + paris + public + ecole
                         , base_period = 'universal'
                         ,control_group = 'nevertreated'
 )
@@ -276,7 +342,11 @@ ggdid(test_did, ncol = 2)
 
 
 
-test_did <- did::att_gt(yname = 'avg_citations',
+table(ds_reg$secteur)
+
+
+
+test_did <- did::att_gt(yname = 'citations',
                         tname = 'yearn',
                         idname = 'idn',
                         gname = 'acces_rce',
@@ -285,15 +355,14 @@ test_did <- did::att_gt(yname = 'avg_citations',
                                                       as.numeric(anr_hors_investissements_d_avenir)
                                                     + as.numeric(contrats_et_prestations_de_recherche_hors_anr)
                           )/(
-                            as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
-                          .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
-                          .[year %in% 2003:2020 & type %in% c('education','facility','government')
-                            & type_fr !='undefined'
-                            & (is)
-                          ],
+                            as.numeric(produits_de_fonctionnement_encaissables) ) ] #%>%
+                         #.[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
+                         #.[year %in% 2003:2020 & type %in% c('education','facility','government')
+
+                         #],
                         # allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
-                        xformla = ~ REG + type + domain + cnrs + quartile_n_au_2003 + quartile_avg_pub_2003 + paris + secteur + type_fr 
+                        xformla = ~ REG + type + domain + cnrs + max_total_w_2003 + quartile_avg_pub_2003 + paris  
                         , base_period = 'universal'
                         ,control_group = 'nevertreated'
 )
@@ -301,7 +370,7 @@ ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 
 
 
-test_did <- did::att_gt(yname = 'n_au',
+test_did <- did::att_gt(yname = 'total_w',
                         tname = 'yearn',
                         idname = 'idn',
                         gname = 'acces_rce',
@@ -311,23 +380,24 @@ test_did <- did::att_gt(yname = 'n_au',
                                                     + as.numeric(contrats_et_prestations_de_recherche_hors_anr)
                           )/(
                             as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
-                          .[!acces_rce %in% 2013:2015 & date_first_idex ==0   ] %>%
-                          .[year %in% 2003:2020 & type %in% c('education','facility','government')
+                          .[!acces_rce %in% 2013:2015   ] %>%
+                          .[year %in% 2003:2020 
+                            & (!is.na(ratio_subv_propre) | acces_rce ==0)
                           ]
                         ,
                         # allow_unbalanced_panel = TRUE,
                         # faster_mode = FALSE,
-                        xformla = ~ type + domain + cnrs  + quartile_n_au_2003 + quartile_avg_pub_2003  + secteur + type_fr 
+                       # xformla = ~ type + domain + cnrs # + quartile_total_w_2003 + quartile_avg_pub_2003  + secteur + type_fr 
                         , base_period = 'universal'
-                        ,control_group = 'notyettreated'
+                        ,control_group = 'nevertreated'
 )
 ggdid(aggte(test_did, type = 'dynamic', na.rm = TRUE))
 
-
+summary(ds_clean$ratio_subv_propre)
 table(ds_clean$type_fr)
 
-test<-unique(ds_clean[, list(inst_id, fusion_date, n_au_2003, avg_publications_2003,min_n_au)])[min_n_au <5]
-test<-unique(ds_clean[, list(inst_id, fusion_date, year, publications_raw, n_au_2003, avg_publications_2003)])[inst_id == "I68947357" & field =="24"]
+test<-unique(ds_clean[, list(inst_id, fusion_date, total_w_2003, avg_publications_2003,min_total_w)])[min_total_w <5]
+test<-unique(ds_clean[, list(inst_id, fusion_date, year, publications, total_w_2003, avg_publications_2003)])[inst_id == "I68947357" & field =="24"]
 
 list_g = list( "acces_rce" = sort(unique(ds_clean[acces_rce !=0]$acces_rce))
                ,"date_first_idex" = sort(unique(ds_clean[date_first_idex !=0]$date_first_idex))
@@ -361,12 +431,12 @@ fe_large = paste0(  ' |inst_id + '
                     ,'+ capital^year'
                     ,'+ main_topic^year'
                     ,'+ city^year'
-                    ,'+ quartile_n_au_2003^year'
+                    ,'+ quartile_total_w_2003^year'
                     ,'+ quartile_cit_2003^year'
                     ,'+ quartile_pub_2003^year'
                     ,'+ quartile_top5pct_2003^year'
                     #,'+ quartile_avg_pub_2003^year'
-                    #,'+ n_au_2003^year'
+                    #,'+ total_w_2003^year'
                     #,'+ avg_publications_2003^year'
                     
 )
@@ -381,11 +451,11 @@ agg_stag_by_g <- data.table(treatment = '', est = 0, std = 0, t_value = 0, p_val
 dict_vars <- c('acces_rce'= 'University autonomy',
                'date_first_idex'='Received an IDEX',
                'fusion_date'= "Merged establishment",
-               "publications_raw" = 'Publications',
-               "citations_raw"='Citations',
+               "publications" = 'Publications',
+               "citations"='Citations',
                "avg_publications" = 'Average publications',
                "avg_citations"='Average citations',
-               "n_au" = "Number of researchers",
+               "total_w" = "Number of researchers",
                "nr_source_btm_50pct_raw"="Bottom 50% journal publications",
                "nr_source_mid_40pct_raw"="Middle 40% journal publications",
                "nr_source_top_20pct_raw"="Top 20% journal publications", 
@@ -399,10 +469,10 @@ dict_vars <- c('acces_rce'= 'University autonomy',
                'main_topic'='Main field',
                "|inst_id"= 'Institution',
                " |inst_id"= 'Institution',
-               "n_au_2003" = 'Number of authors in 2003'
+               "total_w_2003" = 'Number of authors in 2003'
 )
-outcomes <- c('n_au',
-              "publications_raw","citations_raw","nr_source_top_5pct_raw",
+outcomes <- c('total_w',
+              "publications","citations","nr_source_top_5pct_raw",
               "nr_source_top_10pct_raw",
               'avg_publications',
               'avg_citations'
@@ -568,7 +638,7 @@ make_stargazer_like_table_dt(unique(agg_stag%>%
                                       .[, ctrl := ifelse(ctrl == 'None' | ctrl == '|year', fe_min, ctrl)]), 
                              var_map = dict_vars, 
                              treat_map = dict_vars, 
-                             var_order = c('n_au','publications_raw','citations_raw', 'nr_source_top_10pct_raw'), 
+                             var_order = c('total_w','publications','citations', 'nr_source_top_10pct_raw'), 
                              pre_mean = pre_mean,
                              n_obs = n_obs,
                              r_2 = r_2,
@@ -592,13 +662,13 @@ make_stargazer_like_table_dt(unique(agg_stag%>%
 #
 #ggplot(data_acces_rce %>%
 #         .[, lapply(.SD, mean, na.rm= T), by = c('g','year'), .SDcols = cols_to_wins])+
-#  geom_line(aes(x=year,y=citations_raw,color= as.factor(g)))
+#  geom_line(aes(x=year,y=citations,color= as.factor(g)))
 #
-#feols_acces_rce <- didImputation(y0 = citations_raw ~ 0 | inst_id + t + cnrs_t+pub_2002_t +first_y_lab_t+type_t#+main_topic_t #+city_t
+#feols_acces_rce <- didImputation(y0 = citations ~ 0 | inst_id + t + cnrs_t+pub_2002_t +first_y_lab_t+type_t#+main_topic_t #+city_t
 #                                 ,cohort = "g",
 #                                 data = data_acces_rce %>% 
 #                                   .[inst_id != 'I4210159570'] %>%
-#                                   .[, ':='(log_citations = log(citations_raw),
+#                                   .[, ':='(log_citations = log(citations),
 #                                                                    cnrs_t = paste0(cnrs,'_',t),
 #                                                                    type_t = paste0(type,'_',t),
 #                                                                    city_t = paste0(city,'_',t),

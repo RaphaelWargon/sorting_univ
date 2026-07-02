@@ -456,6 +456,14 @@ agg_effect_het <- function(stag_model, data, by = 't', t_limit = 0, comparison_g
   return(etwfe_by)
 }
 
+make_list_g <- function(df, cols) {
+  setNames(
+    lapply(cols, function(col) {
+      sort(unique(df[get(col) != 0][[col]]))
+    }),
+    cols
+  )
+}
 
 
 compute_all_estimates <- function(outcomes = NULL,
@@ -469,14 +477,16 @@ compute_all_estimates <- function(outcomes = NULL,
                                   save_path = '',
                                   type = 'fepois',
                                   comparison_group = 'never-treated',
-                                  formula_elements 
+                                  formula_elements,
+                                  peer_effects = TRUE
 ){
   list_es_all = list()
 
   units <- unique(data[, ..unit_cols]) %>%
     .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)]
   print(table(units[["treat"]]))
-  cols_to_keep <- c(outcomes, id_vars, 'year', trend_controls, str_extract(formula_elements, '^[a-z_0-9]*'))
+  cols_to_keep <- c(outcomes, id_vars, 'year', trend_controls, str_extract(formula_elements, '^[a-z_0-9]*'), 
+                    'acces_rce','date_first_idex','fusion_date','interact_rce_idex')
   formula_ctrl <- paste0( 'y ~ y_minus_i_lt + ',  
                           paste0(formula_elements, collapse= '+'), 
                           '|  year + ',
@@ -499,7 +509,6 @@ compute_all_estimates <- function(outcomes = NULL,
     print(table(matched_units[["treat"]]))
     
     to_keep_in_matched_units <- c(id_vars, "subclass")
-    cols_to_keep <- c(cols_to_keep, 'subclass')
     matched_units <- matched_units %>%
       .[, ..to_keep_in_matched_units]
     
@@ -516,9 +525,15 @@ compute_all_estimates <- function(outcomes = NULL,
     
     data$y <- data[[var]]
     
+    if(peer_effects == TRUE){
     data <- data %>%
       .[, ':='(y_lt = sum(y)), by = id_vars] %>%
       .[, y_minus_i_lt := (y_lt - y)/(1-n_lt)]
+    }
+    else{
+      data <- data %>%
+        .[, y_minus_i_lt:=0]
+    }
     
     if(w_matching == TRUE){
       df_reg <- merge(data, matched_units, by = id_vars)
