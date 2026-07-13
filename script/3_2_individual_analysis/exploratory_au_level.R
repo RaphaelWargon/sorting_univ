@@ -109,9 +109,9 @@ rm(ds)
 gc()
 
 sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" ) 
-sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
+#sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
 
-sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #112788
+sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #104656
 gc()
 
 
@@ -124,19 +124,27 @@ stayers <- sample_df_reg %>%
   .[,':='(acces_rce  = acces_rce_0_1y,
           date_first_idex =date_first_idex_0_1y,
           fusion_date = fusion_date_0_1y,
-          interact_rce_idex = interact_rce_idex_0_1y)]
+          interact_rce_idex = interact_rce_idex_0_1y,
+          retired = as.numeric(year >last_year),
+          pub_n_tile = ifelse(is.na(pub_n_tile), '0', pub_n_tile),
+          cit_n_tile = ifelse(is.na(cit_n_tile), '0', cit_n_tile)
+          )] %>%
+  .[!str_detect(inst_id_set, ',')] %>%
+  .[all_acces_rce ==0 | acces_rce!=0] 
 
 stayers %>%
-  .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce'), .SD= c('publications_raw','citations_raw')]%>%
-  ggplot() + geom_line(aes(x=year, y = publications_raw, color = factor(acces_rce)))
+  .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce'), .SD= c('publications_raw','citations_raw','in_acces_rce','retired')]%>%
+  ggplot() + geom_line(aes(x=year, y = in_acces_rce, color = factor(acces_rce)))
+
+test <- stayers %>% .[acces_rce ==0 & in_acces_rce == 1] %>% .[, list(inst_id_set)] %>% distinct()
 
 table(stayers$acces_rce)
-table(stayers$acces_rce)
+table(stayers$acces_rce, stayers$date_first_idex)
 
 
 unit_cols <- c("author_id", "domain","field", "subfield","gender", "entry_year","last_year",
                "entry_cohort", "pub_04_07","cit_04_07","min_cnrs","pub_n_tile",'min_cnrs' ,
-               'acces_rce','date_first_idex','fusion_date','interact_rce_idex'
+               'acces_rce','date_first_idex','fusion_date','interact_rce_idex','cit_n_tile'
                )
 
 list_g <- make_list_g(stayers, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
@@ -157,12 +165,14 @@ for(d in names(list_g)){
 }
 
 
-test <- compute_all_estimates(outcomes = c('publications_raw','citations_raw', 'nr_source_top_5pct_raw'),
-                              data = stayers,
-                              w_matching = TRUE, matching_variables = c('entry_cohort','domain'),
+test <- compute_all_estimates(outcomes = c('retired','publications_raw', 'citations_raw'
+                                           ),
+                              data = stayers %>% .[pub_04_07>2],
+                              w_matching = TRUE, matching_variables = c('entry_cohort','domain','pub_n_tile', 'cit_n_tile'),
                               #w_matching = FALSE,
                               id_vars = c('author_id'),
-                              trend_controls = c('entry_cohort','domain','min_cnrs'),
+                              trend_controls = #NULL,
+                              c('in_cnrs','in_ecole','entry_cohort','domain'),
                               plot_event_study = TRUE,
                               #save_event_study = TRUE, save_path = save_path, 
                               type = "feols",
@@ -171,6 +181,9 @@ test <- compute_all_estimates(outcomes = c('publications_raw','citations_raw', '
 )
 
 
+
+
+# Movers  -----------------------------------------------------------------
 
 
 
