@@ -109,7 +109,7 @@ rm(ds)
 gc()
 
 sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" ) 
-#sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
+sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
 
 sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #104656
 gc()
@@ -129,6 +129,7 @@ stayers <- sample_df_reg %>%
           pub_n_tile = ifelse(is.na(pub_n_tile), '0', pub_n_tile),
           cit_n_tile = ifelse(is.na(cit_n_tile), '0', cit_n_tile)
           )] %>%
+  .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
   .[!str_detect(inst_id_set, ',')] %>%
   .[all_acces_rce ==0 | acces_rce!=0] 
 
@@ -140,6 +141,8 @@ test <- stayers %>% .[acces_rce ==0 & in_acces_rce == 1] %>% .[, list(inst_id_se
 
 table(stayers$acces_rce)
 table(stayers$acces_rce, stayers$date_first_idex)
+table(stayers$acces_rce, stayers$interact_rce_idex)
+table(stayers$date_first_idex, stayers$interact_rce_idex)
 
 
 unit_cols <- c("author_id", "domain","field", "subfield","gender", "entry_year","last_year",
@@ -165,14 +168,18 @@ for(d in names(list_g)){
 }
 
 
-test <- compute_all_estimates(outcomes = c('retired','publications_raw', 'citations_raw'
+
+test <- compute_all_estimates(outcomes = c('publications_raw', 
+                                           'citations_raw'
+                                           ,'total_new_phrase_comb_reuse','nr_source_top_5pct_raw'
                                            ),
-                              data = stayers %>% .[pub_04_07>2],
-                              w_matching = TRUE, matching_variables = c('entry_cohort','domain','pub_n_tile', 'cit_n_tile'),
+                              data = stayers %>% .[cit_04_07 >2],
+                              w_matching = TRUE, 
+                              matching_variables = c('entry_year','field','pub_n_tile','cit_n_tile'),
                               #w_matching = FALSE,
                               id_vars = c('author_id'),
-                              trend_controls = #NULL,
-                              c('in_cnrs','in_ecole','entry_cohort','domain'),
+                              trend_controls = #NU
+                              c('in_cnrs','in_ecole'),
                               plot_event_study = TRUE,
                               #save_event_study = TRUE, save_path = save_path, 
                               type = "feols",
@@ -184,8 +191,138 @@ test <- compute_all_estimates(outcomes = c('retired','publications_raw', 'citati
 
 
 # Movers  -----------------------------------------------------------------
+type_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), 'in_type')] 
 
 
+
+movers <- sample_df_reg %>%
+  .[, ':='(all_chg = sum(new_af +change_af),
+           all_acces_rce = sum(in_acces_rce),
+           all_idex = sum(in_date_first_idex),
+           all_retired = sum(as.numeric(year >last_year))
+           ),by= 'author_id'] %>%
+  .[, (paste0('all_', type_cols)) := lapply(.SD, sum), by = 'author_id', .SDcols = type_cols]%>%
+  .[all_in_type_company ==0 & all_in_type_archive ==0 & all_in_type_other == 0
+    & !str_detect(idex_set, 'annul')
+    ] %>%
+  .[,':='(acces_rce  = acces_rce_2_3y,
+          date_first_idex =date_first_idex_2_3y,
+          fusion_date = fusion_date_2_3y,
+          interact_rce_idex = interact_rce_idex_2_3y,
+          retired = as.numeric(year >last_year),
+          pub_n_tile = ifelse(is.na(pub_n_tile), '0', pub_n_tile),
+          cit_n_tile = ifelse(is.na(cit_n_tile), '0', cit_n_tile)
+  )] %>%
+  .[, has_pub := as.numeric(publications_raw >0)] %>%
+ #.[ (acces_rce == acces_rce_0_1y)
+ #   &(date_first_idex == date_first_idex_0_1y)
+ #   ]%>%
+ # .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
+  #.[!str_count(inst_id_set, ',')>2] %>%
+  .[!(acces_rce %in% 2013:2015) & !(date_first_idex %in% c(2013,2014))
+    & !(interact_rce_idex %in% c(2013,2014))
+   # & (fusion_date ==0)
+    ] %>%
+  .[, inst_id_obs := .N, by = c('inst_id_set')] %>%
+  .[, ':='(min_inst_id_obs = min(inst_id_obs),
+           n_obs = .N,
+           max_nr_inst_id = max(str_count(inst_id_set,','))
+           ), by = 'author_id'] %>%
+  .[min_inst_id_obs >=10 & n_obs >=17 & year >= 2004]
+test_obs <- unique(movers[, list(inst_id_set, inst_id_obs)])
+
+test_2 <- movers %>%
+  .[ acces_rce == 2009& year ==2011]
+
+summary(unique(test_2[, list(inst_id_set, min_inst_id_obs)]))
+
+table((movers %>% .[, .N, by = 'author_id'])$N)
+gc()
+
+movers %>%
+  .[, has_pub := as.numeric(publications_raw >0)] %>%
+  .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce'), 
+    .SD= c('publications_raw','change_af','citations_raw','in_acces_rce','retired','has_pub'
+           )]%>%
+  ggplot() + geom_line(aes(x=year, y = has_pub, color = factor(acces_rce)))
+
+nrow(movers[str_count(inst_id_set, ',')>0])/nrow(movers)
+
+gc()
+
+list_g <- make_list_g(movers, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
+
+formula_elements <- c()
+formula_w_interactions <- c()
+for(d in names(list_g)){
+  for(g_i in list_g[[d]]){
+    varname =paste0(d, '_', g_i)
+    print(varname)
+    ref = as.character(as.numeric(g_i)-1)
+    movers[[varname]] <- as.numeric((movers[[paste0(d)]] == g_i))
+    if(!str_detect(d, 'interact')){
+      formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
+    }
+    formula_w_interactions <- c(formula_w_interactions, paste0(varname, ' + i(year,', varname, ',ref=',ref,')') )
+  }
+}
+
+table(movers$acces_rce,movers$date_first_idex)
+table(movers$interact_rce_idex,movers$date_first_idex)
+
+table( unique(movers %>% 
+          .[, list(acces_rce, date_first_idex, inst_id_set)])
+          $acces_rce,unique(movers %>% 
+                              .[, list(acces_rce,date_first_idex, inst_id_set)])$date_first_idex)
+
+
+
+gc()
+
+test_all <- compute_all_estimates(outcomes = c(#'publications_raw', 
+                                              # "has_pub"
+  'publications_raw','citations_raw'
+),
+data = movers %>% .[]
+,w_matching = TRUE, matching_variables = c('entry_year','field'),
+#,w_matching = FALSE,
+id_vars = c('author_id'),
+trend_controls =
+  NULL,
+  c('in_cnrs','in_ecole'
+  #,'in_type_education','in_type_facility','in_type_government','in_type_company','in_type_archive','in_type_nonprofit'
+ # ,'entry_year','field', 'pub_n_tile', 'cit_n_tile'
+  , 'inst_id_set'
+    ),
+plot_event_study = TRUE,
+save_event_study = FALSE,
+#save_event_study = TRUE, save_path = save_path, 
+type = "feols",
+formula_elements = formula_w_interactions,
+peer_effects = FALSE
+)
+
+test_2<-as.data.table(test_all$has_pub$regression$coeftable, keep.rownames = T) %>%
+  .[, var:=rn] %>% .[,est :=Estimate] %>% .[,std:=`Std. Error`] %>%.[, rn :=NULL] %>%
+  .[ str_detect(var, '(?<=[0-9]:)[a-z_]')]%>%
+  .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
+  # .[, d := str_extract(var, '(?<=year[0-9]{4}:)[a-z_]+(?=[0-9])|^[a-z_]+(?=[0-9]{4}:year)')]%>%
+  .[, g := str_extract(var, paste0('(?<=' , d, '_)[0-9]{4}')) ] %>%
+  .[, year := str_extract(var, '(?<=year::)[0-9]{4}')] %>%
+  # .[, year := str_extract(var, '(?<=year)[0-9]{4}')] %>%
+  .[, t := as.numeric(year)-as.numeric(g)] #%>% .[, t := as.character(t)]
+
+for(treat in unique(test_2$d)){
+  print(treat)
+  event_study_plot <- ggplot(test_2 %>% .[d ==treat])+
+    geom_point(aes(x= as.factor(t), y = est, color = g))+
+    geom_errorbar(aes(x=as.factor(t), ymin = est -1.96*std, ymax=est+1.96*std, color = g))+
+    geom_vline(aes(xintercept = "-1"), linetype = "dashed")+geom_hline(aes(yintercept = 0))+
+    labs(title = paste0('Treatment: ', dict_vars[[treat]]))+xlab('Time to treatment')+ ylab('Estimate and 95% CI')+
+    theme_bw()
+  print(event_study_plot)
+  }
+  
 
 # Old ---------------------------------------------------------------------
 
