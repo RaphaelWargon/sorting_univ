@@ -115,6 +115,11 @@ sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #104656
 gc()
 
 
+unit_cols <- c("author_id", "domain","field", "subfield","gender", "entry_year","last_year",
+               "entry_cohort", "pub_04_07","cit_04_07","min_cnrs","pub_n_tile",'min_cnrs' ,
+               'acces_rce','date_first_idex','fusion_date','interact_rce_idex','cit_n_tile'
+)
+
 # Stayers sample ----------------------------------------------------------
 
 stayers <- sample_df_reg %>%
@@ -144,11 +149,6 @@ table(stayers$acces_rce, stayers$date_first_idex)
 table(stayers$acces_rce, stayers$interact_rce_idex)
 table(stayers$date_first_idex, stayers$interact_rce_idex)
 
-
-unit_cols <- c("author_id", "domain","field", "subfield","gender", "entry_year","last_year",
-               "entry_cohort", "pub_04_07","cit_04_07","min_cnrs","pub_n_tile",'min_cnrs' ,
-               'acces_rce','date_first_idex','fusion_date','interact_rce_idex','cit_n_tile'
-               )
 
 list_g <- make_list_g(stayers, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
 
@@ -190,12 +190,12 @@ test <- compute_all_estimates(outcomes = c('publications_raw',
 
 
 
-# Movers  -----------------------------------------------------------------
+# All  -----------------------------------------------------------------
 type_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), 'in_type')] 
 
 
 
-movers <- sample_df_reg %>%
+all_df_reg <- sample_df_reg %>%
   .[, ':='(all_chg = sum(new_af +change_af),
            all_acces_rce = sum(in_acces_rce),
            all_idex = sum(in_date_first_idex),
@@ -217,7 +217,7 @@ movers <- sample_df_reg %>%
  #.[ (acces_rce == acces_rce_0_1y)
  #   &(date_first_idex == date_first_idex_0_1y)
  #   ]%>%
- # .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
+  .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
   #.[!str_count(inst_id_set, ',')>2] %>%
   .[!(acces_rce %in% 2013:2015) & !(date_first_idex %in% c(2013,2014))
     & !(interact_rce_idex %in% c(2013,2014))
@@ -228,29 +228,76 @@ movers <- sample_df_reg %>%
            n_obs = .N,
            max_nr_inst_id = max(str_count(inst_id_set,','))
            ), by = 'author_id'] %>%
-  .[min_inst_id_obs >=10 & n_obs >=17 & year >= 2004]
-test_obs <- unique(movers[, list(inst_id_set, inst_id_obs)])
+  .[n_obs ==18]
 
-test_2 <- movers %>%
-  .[ acces_rce == 2009& year ==2011]
+
+test_obs <- unique(all_df_reg[, list(inst_id_set, inst_id_obs, acces_rce)])
+test_2 <- all_df_reg[year %in% 2003:2007 & year <=last_year,
+                 .(citations = sum(citations_raw)),
+                 by = .(author_id, field)] %>%
+  .[, N := .N, by = 'field'] %>%
+  .[N>=25]
+
+# ratio-scale field normalisation (mean, or median for robustness)
+test_2[, cit_rel := citations / mean(citations), by = field]
+
+# how much mass is at zero, by field -- report this separately
+test_2[, .(share_zero = mean(citations == 0), n = .N), by = field][order(-share_zero)]
+
+# pooled empirical survival, zeros dropped, ties handled
+surv <- test_2[citations > 0, .N, by = cit_rel][order(cit_rel)]
+surv[, S := (sum(N) - cumsum(N) + N) / sum(N)]
+
+ggplot(surv, aes(cit_rel, S)) +
+  geom_point(size = 0.6, alpha = 0.5) +
+  scale_x_log10() + scale_y_log10() +
+  annotation_logticks(sides = "bl") +
+  labs(x = "citations / field mean (log)", y = expression(P(X >= x)))
+
+
+x <- sort(test_2[citations > 0, cit_rel], decreasing = TRUE)
+k <- 10:min(2000, length(x) - 1)
+hill <- vapply(k, function(kk) 1 / (mean(log(x[1:kk])) - log(x[kk + 1])), numeric(1))
+ggplot(data.frame(k, q = hill), aes(k, q)) + geom_line()
+
+alpha <- 0.3
+test_2[, .(bound_all   = mean(cit_rel^(1/(1-alpha)))^(1-alpha) / mean(cit_rel)),]
+test_2[citations > 0, .(bound_pos = mean(cit_rel^(1/(1-alpha)))^(1-alpha) / mean(cit_rel))]
+
+var(test_2[citations>0]$cit_rel)
+
+w1 <- all_df_reg[year %in% 2006:2007, .(c1 = sum(citations_raw)), by = .(author_id, field)]
+w2 <- all_df_reg[year %in% 2003:2005, .(c2 = sum(citations_raw)), by = .(author_id, field)]
+w1[, r1 := c1 / mean(c1), by = field]
+w2[, r2 := c2 / mean(c2), by = field]
+
+d <- merge(w1, w2, by = c("author_id", "field"))[c1 > 0 & c2 > 0]
+d[, .(v1  = var(log(r1)),
+      v2  = var(log(r2)),
+      v_persistent = cov(log(r1), log(r2)),   # <- this is what feeds the model
+      reliability  = cor(log(r1), log(r2)))]
+
+
+ggplot(movers %>% .[year == 2004])+
+  geom_density(aes(x=log(semantic_distance)))
 
 summary(unique(test_2[, list(inst_id_set, min_inst_id_obs)]))
 
-table((movers %>% .[, .N, by = 'author_id'])$N)
+table((all_df_reg %>% .[, .N, by = 'author_id'])$N)
 gc()
 
-movers %>%
+all_df_reg %>%
   .[, has_pub := as.numeric(publications_raw >0)] %>%
   .[, lapply(.SD, mean, na.rm = T), by = c('year','acces_rce'), 
     .SD= c('publications_raw','change_af','citations_raw','in_acces_rce','retired','has_pub'
            )]%>%
   ggplot() + geom_line(aes(x=year, y = has_pub, color = factor(acces_rce)))
 
-nrow(movers[str_count(inst_id_set, ',')>0])/nrow(movers)
+nrow(all_df_reg[str_count(inst_id_set, ',')>0])/nrow(all_df_reg)
 
 gc()
 
-list_g <- make_list_g(movers, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
+list_g <- make_list_g(all_df_reg, c("acces_rce", "date_first_idex", "fusion_date", "interact_rce_idex"))
 
 formula_elements <- c()
 formula_w_interactions <- c()
@@ -258,8 +305,8 @@ for(d in names(list_g)){
   for(g_i in list_g[[d]]){
     varname =paste0(d, '_', g_i)
     print(varname)
-    ref = as.character(as.numeric(g_i)-1)
-    movers[[varname]] <- as.numeric((movers[[paste0(d)]] == g_i))
+    ref = as.character(as.numeric(g_i)-2)
+    all_df_reg[[varname]] <- as.numeric((all_df_reg[[paste0(d)]] == g_i))
     if(!str_detect(d, 'interact')){
       formula_elements <- c(formula_elements, paste0(varname, ' + i(year,', varname, ',ref=',ref,')'))
     }
@@ -267,13 +314,13 @@ for(d in names(list_g)){
   }
 }
 
-table(movers$acces_rce,movers$date_first_idex)
-table(movers$interact_rce_idex,movers$date_first_idex)
+table(all_df_reg$acces_rce,all_df_reg$date_first_idex)
+table(all_df_reg$interact_rce_idex,all_df_reg$date_first_idex)
 
-table( unique(movers %>% 
-          .[, list(acces_rce, date_first_idex, inst_id_set)])
-          $acces_rce,unique(movers %>% 
-                              .[, list(acces_rce,date_first_idex, inst_id_set)])$date_first_idex)
+table( unique(all_df_reg %>% 
+          .[, list(acces_rce, interact_rce_idex, inst_id_set)])
+          $acces_rce,unique(all_df_reg %>% 
+                              .[, list(acces_rce,interact_rce_idex, inst_id_set)])$interact_rce_idex)
 
 
 
@@ -281,18 +328,21 @@ gc()
 
 test_all <- compute_all_estimates(outcomes = c(#'publications_raw', 
                                               # "has_pub"
-  'publications_raw','citations_raw'
+  'publications_raw',#'citations_raw', 'nr_source_top_5pct_raw',
+  "total_new_phrase_comb_reuse"#,'semantic_distance'
 ),
-data = movers %>% .[]
-,w_matching = TRUE, matching_variables = c('entry_year','field'),
+data = all_df_reg 
+,w_matching = TRUE, matching_variables = c('entry_year','field','pub_n_tile'),
 #,w_matching = FALSE,
 id_vars = c('author_id'),
 trend_controls =
-  NULL,
+  #NULL,
   c('in_cnrs','in_ecole'
-  #,'in_type_education','in_type_facility','in_type_government','in_type_company','in_type_archive','in_type_nonprofit'
- # ,'entry_year','field', 'pub_n_tile', 'cit_n_tile'
-  , 'inst_id_set'
+  ,'in_type_education','in_type_facility','in_type_government','in_type_company','in_type_archive','in_type_nonprofit'
+  ,'entry_year','field'
+  ,'pub_n_tile', 'cit_n_tile'
+  ,'city_set'
+  #, 'inst_id_set'
     ),
 plot_event_study = TRUE,
 save_event_study = FALSE,
@@ -302,7 +352,7 @@ formula_elements = formula_w_interactions,
 peer_effects = FALSE
 )
 
-test_2<-as.data.table(test_all$has_pub$regression$coeftable, keep.rownames = T) %>%
+test_2<-as.data.table(test_all$publications_raw$regression$coeftable, keep.rownames = T) %>%
   .[, var:=rn] %>% .[,est :=Estimate] %>% .[,std:=`Std. Error`] %>%.[, rn :=NULL] %>%
   .[ str_detect(var, '(?<=[0-9]:)[a-z_]')]%>%
   .[, d := str_extract(var, '(?<=[0-9]:)[a-z_]+(?=_[0-9])')]%>%
