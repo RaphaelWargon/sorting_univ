@@ -486,7 +486,7 @@ compute_all_estimates <- function(outcomes = NULL,
     .[, treat := as.numeric(acces_rce != 0 | date_first_idex!=0 | fusion_date != 0)]
   print(table(units[["treat"]]))
   cols_to_keep <- c(outcomes, id_vars, 'year', trend_controls, str_extract(formula_elements, '^[a-z_0-9]*'), 
-                    'acces_rce','date_first_idex','fusion_date','interact_rce_idex')
+                    'acces_rce','date_first_idex','fusion_date','interact_rce_idex','n_lt')
   formula_ctrl <- paste0( 'y ~ y_minus_i_lt + ',  
                           paste0(formula_elements, collapse= '+'), 
                           '|  year + ',

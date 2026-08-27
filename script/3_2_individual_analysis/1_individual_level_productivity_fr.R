@@ -163,8 +163,8 @@ outcomes <- c('publications_raw', 'publications',
 sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes] %>%
   .[, ':='(entry_cohort = floor(entry_year/5)*5) ]
 
-fwrite(sample_df_reg, "D:\\panel_fr_res\\sample_df_reg.csv" )
-sample_df_reg <- fread( "D:\\panel_fr_res\\sample_df_reg.csv" )
+fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
+sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
 
 
 units_univ <- unique(sample_df_reg[, .(size_2003 = mean(size_2003),
@@ -477,19 +477,55 @@ for(outcome in names(list_es)){all_ctrl[[outcome]] <- list_es[[outcome]][['ctrl'
 #  result <- agg_effects(all_ctrl[[name]], data = sample_df_reg, t_limit = 5, comparison_group = "not-yet-treated")  # Call your function with the correct data
 #  result[, var := name]  # Add a new column with the name of the list element
 #}), use.names = TRUE, fill = TRUE) %>% .[, ctrl := fe_large]
+save_path_nyt = paste0(save_path, 'nyt\\')
+if (!file.exists(save_path_nyt)){
+  dir.create(save_path_nyt, recursive = TRUE)
+}
 
 
-nyt_est_ctrl <- rbindlist(lapply(outcomes_to_keep, function(name) {
-  result <- agg_effects(list_es_chosen_spec[[name]][['regression']], data = sample_df_reg, t_limit = 5, comparison_group = "not-yet-treated") 
-  result[, var := name] 
-  }),  use.names = TRUE, fill = TRUE) %>%  .[, ctrl := "field^year + entry_cohort^year + cnrs^year + city^year +gender^year"]
+nyt_est_ctrl <- list()
+
+for(trend_ctrl in trend_controls_to_test){
+  nyt_est_ctrl[[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = outcomes_to_keep,
+                                                                         data = sample_df_reg %>% .[acces_rce !=0 | date_first_idex != 0],
+                                                                         #w_matching = TRUE, matching_variables = c('entry_cohort','city','field'),
+                                                                         w_matching = FALSE,
+                                                                         id_vars = c('author_id','inst_id_domain'),
+                                                                         trend_controls = trend_ctrl,
+                                                                         plot_event_study = TRUE,
+                                                                         save_event_study = TRUE, save_path = save_path_nyt, type = "feols",
+                                                                         formula_elements = formula_elements,
+                                                                         comparison_group = "not-yet-treated"
+  )
   
-make_stargazer_like_table_dt(nyt_est_ctrl,
+  gc()
+  
+}
+
+
+agg_stag_spec_nyt <- rbind(map(outcomes_to_keep, \(outcome)
+                               nyt_est_ctrl[[paste0(trend_ctrl, collapse = '_')]][[outcome]][["table_agg"]]
+)) |>
+  rbindlist() %>% distinct()
+
+
+pre_mean_spec_nyt <- list()
+n_obs_spec_nyt <-list()
+r_2_spec_nyt <- list()
+for(outcome in outcomes_to_keep) {
+  pre_mean_spec_nyt[[outcome]]  <- nyt_est_ctrl[[paste0(trend_ctrl, collapse = '_')]][[outcome]][["pre_mean"]]
+  n_obs_spec_nyt[[outcome]]    <- nyt_est_ctrl[[paste0(trend_ctrl, collapse = '_')]][[outcome]][["n_obs"]]
+  r_2_spec_nyt[[outcome]]      <- round(nyt_est_ctrl[[paste0(trend_ctrl, collapse = '_')]][[outcome]][['pseudo_r2']], 2)
+}
+
+
+
+make_stargazer_like_table_dt(agg_stag_spec_nyt,
                              var_map = dict_vars, 
                              treat_map = dict_vars, 
-                             pre_mean = pre_mean_spec,
-                             n_obs = n_obs_spec,
-                              r_2 = r_2_spec,
+                             pre_mean = pre_mean_spec_nyt,
+                             n_obs = n_obs_spec_nyt,
+                              r_2 = r_2_spec_nyt,
                              var_order = outcomes_to_keep,
                              save_path = paste0(save_path, '\\NYT_match_',paste0(sort(c('entry_cohort','city','field')), collapse = '_') 
                                                 ,'_fe_field_entry_cohort_cnrs_city_gender_prod_au_n_tile.tex' )
@@ -1026,3 +1062,105 @@ plot_by_domain
 pdf(paste0(save_path_domain , 'citations_by_domain',".pdf"))
 print(plot_by_domain)
 dev.off() 
+
+
+# heterogeneity by grant intensity ----------------------------------------
+budget <- fread("D:\\scanR\\budget_inst_matched.csv")
+
+save_path_grant_int = paste0(save_path, 'by_grant_int\\')
+if (!file.exists(save_path_grant_int)){
+  dir.create(save_path_grant_int, recursive = TRUE)
+}
+
+sample_df_reg <- sample_df_reg %>%
+  left_join(budget, by = c('inst_id','year') ) %>%
+  .[, ratio_subv_propre := (as.numeric(anr_investissements_d_avenir) + 
+                               as.numeric(anr_hors_investissements_d_avenir)
+                             + as.numeric(contrats_et_prestations_de_recherche_hors_anr)
+  )/(
+    as.numeric(produits_de_fonctionnement_encaissables) ) ] %>%
+  .[, inst_id_domain := paste0(inst_id, '_', domain)]
+
+cutoffs = quantile(sample_df_reg$ratio_subv_propre, probs = c(1/3, 2/3), na.rm =T)
+sample_df_reg <- sample_df_reg %>%
+  .[, ':='(grant_int = case_when(ratio_subv_propre <= cutoffs[1] ~ "L",
+                                 ratio_subv_propre> cutoffs[2] ~ "H", ratio_subv_propre <= cutoffs[2] ~"M"))
+  ]
+
+sample_df_reg %>% .[, .N, by = grant_int]
+list_es_het_by_grant_int <- list()
+
+for( grant_int_value in c('L','M','H') ){
+  save_path_grant_int_value = paste0(save_path_grant_int,'grant_int', grant_int_value, '\\')
+  if (!file.exists(save_path_grant_int_value)){
+    dir.create(save_path_grant_int_value, recursive = TRUE)
+  }
+  list_es_het_by_grant_int[[grant_int_value]] <- list()
+  for(trend_ctrl in trend_controls_to_test){
+    list_es_het_by_grant_int[[grant_int_value]][[paste0(trend_ctrl, collapse = '_')]] <- compute_all_estimates(outcomes = c('citations','total_new_phrase_comb_reuse'),
+                                                                                                         data = sample_df_reg %>% .[grant_int == grant_int_value | is.na(grant_int)],
+                                                                                                         w_matching = TRUE, matching_variables = c('entry_cohort','city','field','gender','cnrs'),
+                                                                                                         id_vars = c('author_id','inst_id_domain'),
+                                                                                                         #w_matching = FALSE,
+                                                                                                         trend_controls = trend_ctrl,
+                                                                                                         plot_event_study = TRUE,
+                                                                                                         save_event_study = TRUE, save_path = save_path_grant_int_value, type = "feols",
+                                                                                                         formula_elements = formula_elements
+    )
+    
+    gc()
+    
+  }
+  
+  
+}
+
+saveRDS(list_es_het_by_grant_int, paste0(save_path_grant_int, 'all_regressions_matched_entry_cohort_city_field_fe_field_entry_cohort.rds'))
+
+
+agg_stag_by_grant_int <- rbind(map(outcomes_to_keep, \(outcome)
+                                map(c("H","L",'M'), \(grant_int_value){
+                                  dt <- list_es_het_by_grant_int[[grant_int_value]][["field_entry_cohort_cnrs_city_gender_prod_au_n_tile"]][[outcome]][["table_agg"]]
+                                  if (!is.null(dt)) dt[, grant_int := grant_int_value]
+                                  dt
+                                })) %>%
+                              unlist(recursive = FALSE) ) %>%
+  rbindlist() %>% distinct() %>%
+  .[, treat := case_when(treat == "acces_rce" ~'Administrative autonomy', treat == "date_first_idex" ~"IDEX", .default = 'Mergers')] %>%
+  .[, grant_int := case_when(grant_int == "H" ~ 'High', grant_int == "L" ~'Low', grant_int == 'M' ~ "Medium")]
+for(outcome in unique(agg_stag_by_grant_int$var)){
+plot_by_grant_int <- ggplot(agg_stag_by_grant_int %>% .[ var == outcome])+
+  geom_point(aes(x= treat, y = est, color = grant_int), position = position_dodge(width = 0.3))+
+  geom_errorbar(aes(x=treat, ymin = est -1.96*std, ymax=est+1.96*std,, color = grant_int), position = position_dodge(width = 0.3))+
+  scale_colour_manual(values =c('steelblue',"firebrick",'aquamarine4'))+
+  geom_hline(aes(yintercept = 0))+
+  labs(title = paste0(''))+xlab(dict_vars[[outcome]])+ ylab('Estimate and 95% CI')+
+  theme_bw()
+print(plot_by_grant_int)}
+pdf(paste0(save_path_grant_int , 'citations_by_grant_int',".pdf"))
+print(plot_by_grant_int)
+dev.off() 
+
+
+stag_by_grant_int <- rbind(map(outcomes_to_keep, \(outcome)
+                                   map(c("H","L","M"), \(grant_int_value){
+                                     dt <- list_es_het_by_grant_int[[grant_int_value]][["field_entry_cohort_cnrs_city_gender_prod_au_n_tile"]][[outcome]][["table_agg_by_t"]]
+                                     if (!is.null(dt)) dt[, grant_int := grant_int_value]
+                                     dt
+                                   })) %>%
+                                 unlist(recursive = FALSE) ) %>%
+  rbindlist() %>% distinct() %>%
+  .[, treat := case_when(treatment == "acces_rce" ~'Administrative autonomy', treatment == "date_first_idex" ~"IDEX", treatment == "interact_rce_idex" ~ "Autonomy + IDEX", .default = 'Mergers')] %>%
+  .[, grant_int := case_when(grant_int == "H" ~ 'High', grant_int == "L" ~'Low', grant_int == 'M' ~ "Medium")]
+for(treat_value in unique(stag_by_grant_int$treatment)){
+plot_by_grant_int <- ggplot(stag_by_grant_int %>% .[ var == 'citations' & treatment ==treat_value])+
+  geom_point(aes(x= t, y = est, color = grant_int), position = position_dodge(width = 0.3))+
+  geom_errorbar(aes(x=t, ymin = est -1.96*std, ymax=est+1.96*std,, color = grant_int), position = position_dodge(width = 0.3))+
+  scale_colour_manual(values =c('steelblue',"firebrick",'aquamarine4'))+
+  geom_hline(aes(yintercept = 0))+
+  labs(title = paste0(''))+xlab(dict_vars[[treat_value]])+ ylab('Estimate and 95% CI')+
+  theme_bw()
+print(plot_by_grant_int)
+
+}
+
