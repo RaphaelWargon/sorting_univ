@@ -26,7 +26,7 @@ wins_vars <- function(x, pct_level = 0.01){
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.R'))
 
 
-inputpath <- "D:\\panel_fr_res\\data\\panel_au_year.parquet"
+inputpath <- "D:\\panel_fr_res\\data\\panel_au_year_fr.parquet"
 
 save_path = paste0("D:\\panel_fr_res\\results\\productivity_au\\all_treatments\\")
 if (!file.exists(save_path)){
@@ -37,11 +37,11 @@ ds <- open_dataset(inputpath) %>%
   filter(
     last_year-entry_year >2
     & entry_year >=1965 
-    & !(acces_rce_0_1y %in%  c(2014, 2015))
-    & !(date_first_idex_0_1y %in% c(2014))
-    & !(fusion_date_0_1y %in% c(2012,2016,2019))
+    #& !(acces_rce_0_1y %in%  c(2014, 2015))
+    #& !(date_first_idex_0_1y %in% c(2014))
+    #& !(fusion_date_0_1y %in% c(2012,2016,2019))
     & year >= 2003
-    #& entry_year <=2003
+    & entry_year <=2003
   )
 nrow(ds)
 
@@ -51,7 +51,8 @@ table(ds$control_0_1y)
 
 sample_df_reg <- ds %>%
   .[, year_n := as.numeric(as.character(year))] %>%
-  .[!str_detect(idex_set, "annulee")] %>%
+  .[, ever_in_idex_annulee := max(as.numeric(str_detect(idex_set, "annulee") )), by = 'author_id'] %>%
+  .[ever_in_idex_annulee==0] %>%
   .[, pub_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * publications_raw ), by = 'author_id'] %>%
   .[, cit_04_07 := sum(as.numeric(year_n > 2004 & year_n <= 2007) * citations_raw ), by = 'author_id'] %>%
   .[pub_04_07 >=2] %>%
@@ -59,6 +60,8 @@ sample_df_reg <- ds %>%
   #.[year != "2020"] %>%
   .[ , ':='(idn = as.numeric(str_remove(author_id, 'A')))]
 gc()
+
+sample_df_reg %>% .[year >=2003] %>% .[, .N, by = 'author_id'] %>% .[, .N, by = "N"]
 
 test <- sample_df_reg %>%
   .[str_detect(author_name, 'Aghion')]
@@ -100,7 +103,28 @@ sample_df_reg <- sample_df_reg %>%
                                                  as.numeric(as.character(date_first_idex_2_3y))), 0 ),
            interact_rce_idex_2_5y =  ifelse(acces_rce_2_5y != 0 & date_first_idex_2_5y != 0,
                                             pmax(as.numeric(as.character(acces_rce_2_5y)), 
-                                                 as.numeric(as.character(date_first_idex_2_5y))), 0 )
+                                                 as.numeric(as.character(date_first_idex_2_5y))), 0 ),
+           
+           interact_rce_idex_itt_2005 =  ifelse(ITT_acces_rce_2005 != 0 & ITT_date_first_idex_2005 != 0,
+                                            pmax(as.numeric(as.character(ITT_acces_rce_2005)), 
+                                                 as.numeric(as.character(ITT_date_first_idex_2005))), 0 ),
+           
+           interact_rce_idex_itt_2006 =  ifelse(ITT_acces_rce_2006 != 0 & ITT_date_first_idex_2006 != 0,
+                                                pmax(as.numeric(as.character(ITT_acces_rce_2006)), 
+                                                     as.numeric(as.character(ITT_date_first_idex_2006))), 0 ),
+           
+           interact_rce_idex_itt_2007 =  ifelse(ITT_acces_rce_2007 != 0 & ITT_date_first_idex_2007 != 0,
+                                                pmax(as.numeric(as.character(ITT_acces_rce_2007)), 
+                                                     as.numeric(as.character(ITT_date_first_idex_2007))), 0 ),
+           
+           interact_rce_idex_itt_2008 =  ifelse(ITT_acces_rce_2008 != 0 & ITT_date_first_idex_2008 != 0,
+                                                pmax(as.numeric(as.character(ITT_acces_rce_2008)), 
+                                                     as.numeric(as.character(ITT_date_first_idex_2008))), 0 ),
+           
+           interact_rce_idex_itt_2009 =  ifelse(ITT_acces_rce_2009 != 0 & ITT_date_first_idex_2009 != 0,
+                                                pmax(as.numeric(as.character(ITT_acces_rce_2009)), 
+                                                     as.numeric(as.character(ITT_date_first_idex_2009))), 0 )
+           
            
   )]
 
@@ -111,7 +135,7 @@ gc()
 sample_df_reg <- fread("D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" ) 
 sample_df_reg <- fread("C:\\Users\\rapha\\Desktop\\sample_df_reg_au_level_trt.csv" )
 
-sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #104656
+sample_df_reg %>% .[, list(author_id)] %>% distinct() %>% count() #158674
 gc()
 
 
@@ -203,12 +227,12 @@ all_df_reg <- sample_df_reg %>%
   ),by= 'author_id'] %>%
   .[, (paste0('all_', type_cols)) := lapply(.SD, sum), by = 'author_id', .SDcols = type_cols]%>%
   .[all_in_type_company ==0 & all_in_type_archive ==0 & all_in_type_other == 0
-    & !str_detect(idex_set, 'annul')
+   & !is.na(field)
   ] %>%
-  .[,':='(acces_rce  = acces_rce_2_3y,
-          date_first_idex =date_first_idex_2_3y,
-          fusion_date = fusion_date_2_3y,
-          interact_rce_idex = interact_rce_idex_2_3y,
+  .[,':='(acces_rce  = ITT_acces_rce_2007,
+          date_first_idex =ITT_date_first_idex_2007,
+          fusion_date = ITT_fusion_date_2007,
+          interact_rce_idex = interact_rce_idex_itt_2007,
           retired = as.numeric(year >last_year),
           pub_n_tile = ifelse(is.na(pub_n_tile), '0', pub_n_tile),
           cit_n_tile = ifelse(is.na(cit_n_tile), '0', cit_n_tile)
@@ -217,7 +241,7 @@ all_df_reg <- sample_df_reg %>%
   #.[ (acces_rce == acces_rce_0_1y)
   #   &(date_first_idex == date_first_idex_0_1y)
   #   ]%>%
-  .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
+ # .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
   #.[!str_count(inst_id_set, ',')>2] %>%
   .[!(acces_rce %in% 2013:2015) & !(date_first_idex %in% c(2013,2014))
     & !(interact_rce_idex %in% c(2013,2014))
@@ -228,7 +252,14 @@ all_df_reg <- sample_df_reg %>%
            n_obs = .N,
            max_nr_inst_id = max(str_count(inst_id_set,','))
   ), by = 'author_id'] %>%
-  .[n_obs ==18]
+  .[, ":="(acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
+           date_first_idex = ifelse(is.na(date_first_idex), 0, date_first_idex),
+           fusion_date = ifelse(is.na(fusion_date), 0, fusion_date),
+           interact_rce_idex = ifelse(is.na(interact_rce_idex), 0, interact_rce_idex)
+           )
+    
+  ] %>% .[fusion_date<=2020] %>%
+  .[, n_lt := .N, by = c('inst_id_set','field')]
 
 table((all_df_reg %>% .[, .N, by = 'author_id'])$N)
 gc()
@@ -273,22 +304,60 @@ table( unique(all_df_reg %>%
 
 gc()
 
+sample_separate_rce <- all_df_reg %>%
+  .[, ':='(yearn = as.numeric(as.character(year)),
+           acces_rce = as.numeric(as.character(acces_rce)),
+           idn = as.numeric(str_remove(author_id, "A")),
+           d1 = as.numeric(str_detect(domain, "1")),
+           d2 = as.numeric(str_detect(domain, "2")),
+           d3 = as.numeric(str_detect(domain, "3")),
+           d4 = as.numeric(str_detect(domain, "4"))
+  )] %>% .[ date_first_idex == 0] %>%
+  .[, n_field := n_distinct(author_id), by = 'field'] %>%
+  .[n_field >=50] %>%
+  .[, ':='(city_2007 = paste(ifelse(year ==2007, DEP_set, ''), collapse = ""), 
+    inst_2007 = paste(ifelse(year ==2007, inst_id_set, ''), collapse = "")
+    ), by = 'author_id'] %>%
+  .[, ':='(N = n_distinct(author_id)), by = 'city_2007'] %>% .[N>=20]
+
+ggplot(sample_separate_rce %>%
+         .[, .(N = n_distinct(author_id)), by = 'city_2007'])+
+  geom_density(aes(x=(N)))
+
+gc()
+table( unique(sample_separate_rce[, list(acces_rce, author_id)])$acces_rce)
+test_cs <- att_gt(yname = 'publications_raw',
+                  tname = 'yearn',
+                  idname = 'idn',
+                  gname = 'acces_rce',
+                  data = sample_separate_rce
+                    
+                  # allow_unbalanced_panel = TRUE,
+                  # faster_mode = FALSE,
+                  , base_period = "universal"
+                  ,xformla = ~ entry_year + subfield  +pub_n_tile + cit_n_tile + city_2007
+                  ,control_group = 'nevertreated'
+                    
+)
+
+ggdid(aggte(test_cs, type =  "dynamic", na.rm = T))
+
 test_all <- compute_all_estimates(outcomes = c(#'publications_raw', 
   # "has_pub"
   'publications_raw',#'citations_raw', 'nr_source_top_5pct_raw',
   "total_new_phrase_comb_reuse"#,'semantic_distance'
 ),
 data = all_df_reg 
-,w_matching = TRUE, matching_variables = c('entry_year','field','pub_n_tile'),
+,w_matching = TRUE, matching_variables = c('entry_year','field','pub_n_tile','cit_n_tile'),
 #,w_matching = FALSE,
 id_vars = c('author_id'),
 trend_controls =
   #NULL,
   c('in_cnrs','in_ecole'
-    ,'in_type_education','in_type_facility','in_type_government','in_type_company','in_type_archive','in_type_nonprofit'
+    #,'in_type_education','in_type_facility','in_type_government','in_type_company','in_type_archive','in_type_nonprofit'
     ,'entry_year','field'
     ,'pub_n_tile', 'cit_n_tile'
-    ,'city_set'
+    #,'city_set'
     #, 'inst_id_set'
   ),
 plot_event_study = TRUE,
