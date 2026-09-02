@@ -40,6 +40,7 @@ type_cols <- colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), 'in_typ
 
 
 
+
 all_df_reg <- sample_df_reg %>%
   .[, ':='(all_chg = sum(new_af +change_af),
            all_acces_rce = sum(in_acces_rce),
@@ -48,12 +49,12 @@ all_df_reg <- sample_df_reg %>%
   ),by= 'author_id'] %>%
   .[, (paste0('all_', type_cols)) := lapply(.SD, sum), by = 'author_id', .SDcols = type_cols]%>%
   .[all_in_type_company ==0 & all_in_type_archive ==0 & all_in_type_other == 0
-    & !str_detect(idex_set, 'annul')
+    & !is.na(field)
   ] %>%
-  .[,':='(acces_rce  = acces_rce_2_3y,
-          date_first_idex =date_first_idex_2_3y,
-          fusion_date = fusion_date_2_3y,
-          interact_rce_idex = interact_rce_idex_2_3y,
+  .[,':='(acces_rce  = ITT_acces_rce_2007,
+          date_first_idex =ITT_date_first_idex_2007,
+          fusion_date = ITT_fusion_date_2007,
+          interact_rce_idex = interact_rce_idex_itt_2007,
           retired = as.numeric(year >last_year),
           pub_n_tile = ifelse(is.na(pub_n_tile), '0', pub_n_tile),
           cit_n_tile = ifelse(is.na(cit_n_tile), '0', cit_n_tile)
@@ -62,7 +63,7 @@ all_df_reg <- sample_df_reg %>%
   #.[ (acces_rce == acces_rce_0_1y)
   #   &(date_first_idex == date_first_idex_0_1y)
   #   ]%>%
-  .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
+  # .[, ':='(date_first_idex = ifelse(acces_rce ==0, date_first_idex, 0 ))]%>%
   #.[!str_count(inst_id_set, ',')>2] %>%
   .[!(acces_rce %in% 2013:2015) & !(date_first_idex %in% c(2013,2014))
     & !(interact_rce_idex %in% c(2013,2014))
@@ -73,13 +74,20 @@ all_df_reg <- sample_df_reg %>%
            n_obs = .N,
            max_nr_inst_id = max(str_count(inst_id_set,','))
   ), by = 'author_id'] %>%
-  .[n_obs ==18]
+  .[, ":="(acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
+           date_first_idex = ifelse(is.na(date_first_idex), 0, date_first_idex),
+           fusion_date = ifelse(is.na(fusion_date), 0, fusion_date),
+           interact_rce_idex = ifelse(is.na(interact_rce_idex), 0, interact_rce_idex)
+  )
+  
+  ] %>% .[fusion_date<=2020] %>%
+  .[, n_lt := .N, by = c('inst_id_set','field')]
 
 
 
 # Estimating the distributions --------------------------------------------
 
-citations_pre <- all_df_reg[year %in% 2003:2005 & year <=last_year & in_type_facility ==1,
+citations_pre <- all_df_reg[year %in% 2003:2005 & year <=last_year & in_type_facility ==1 & acces_rce !=0,
                      .(citations = sum(citations_raw),
                        total_new_phrase_comb_reuse = sum(total_new_phrase_comb_reuse)
                        ),
@@ -145,7 +153,7 @@ citations_post <- all_df_reg %>%
   .[, has_competitive := (as.numeric(au_funded_ANR_ods== 1 | au_funded_ANR_dgds == 1 | au_funded_ERC ==1))] %>%
   .[, inst_has_grant := max(has_competitive), by = c('inst_id_set','year')] %>%
   .[, has_competitive := max(inst_has_grant), by = c('author_id','year')] %>%
-  .[year %in% 2015:2020 & year <=last_year & in_type_facility ==1,
+  .[year %in% 2015:2020 & year <=last_year & in_type_facility ==1 & acces_rce !=0,
                             .(citations = sum(citations_raw)),
                             by = .(author_id, field,has_competitive)] %>%
   .[, N := .N, by = 'field'] %>%
