@@ -48,7 +48,7 @@ nrow(ds)
 
 ds <- as.data.table(ds)
 gc()
-table(ds$control_0_1y)
+
 
 sample_df_reg <- ds %>%
   .[, year_n := as.numeric(as.character(year))] %>%
@@ -89,45 +89,7 @@ sample_df_reg <- sample_df_reg %>%
                                                        probs = c(0, 0.25, 0.5, 0.75, 0.9, 1))), include_lowest = T, labels = FALSE))
   ] %>% 
   .[, min_cnrs := min(ifelse(in_cnrs==1, year, NA), na.rm =T), by ='author_id'] %>%
-  .[, min_cnrs := ifelse(!is.na(min_cnrs),min_cnrs, 0)]%>%
-  .[, ':='(interact_rce_idex_0_1y =  ifelse(acces_rce_0_1y != 0 & date_first_idex_0_1y != 0,
-                                            pmax(as.numeric(as.character(acces_rce_0_1y)), 
-                                                 as.numeric(as.character(date_first_idex_0_1y))), 0 ),
-           interact_rce_idex_0_3y =  ifelse(acces_rce_0_3y != 0 & date_first_idex_0_3y != 0,
-                                            pmax(as.numeric(as.character(acces_rce_0_3y)), 
-                                                 as.numeric(as.character(date_first_idex_0_3y))), 0 ),
-           interact_rce_idex_0_5y =  ifelse(acces_rce_0_5y != 0 & date_first_idex_0_5y != 0,
-                                            pmax(as.numeric(as.character(acces_rce_0_5y)), 
-                                                 as.numeric(as.character(date_first_idex_0_5y))), 0 ),
-           interact_rce_idex_2_3y =  ifelse(acces_rce_2_3y != 0 & date_first_idex_2_3y != 0,
-                                            pmax(as.numeric(as.character(acces_rce_2_3y)), 
-                                                 as.numeric(as.character(date_first_idex_2_3y))), 0 ),
-           interact_rce_idex_2_5y =  ifelse(acces_rce_2_5y != 0 & date_first_idex_2_5y != 0,
-                                            pmax(as.numeric(as.character(acces_rce_2_5y)), 
-                                                 as.numeric(as.character(date_first_idex_2_5y))), 0 ),
-           
-           interact_rce_idex_itt_2005 =  ifelse(ITT_acces_rce_2005 != 0 & ITT_date_first_idex_2005 != 0,
-                                            pmax(as.numeric(as.character(ITT_acces_rce_2005)), 
-                                                 as.numeric(as.character(ITT_date_first_idex_2005))), 0 ),
-           
-           interact_rce_idex_itt_2006 =  ifelse(ITT_acces_rce_2006 != 0 & ITT_date_first_idex_2006 != 0,
-                                                pmax(as.numeric(as.character(ITT_acces_rce_2006)), 
-                                                     as.numeric(as.character(ITT_date_first_idex_2006))), 0 ),
-           
-           interact_rce_idex_itt_2007 =  ifelse(ITT_acces_rce_2007 != 0 & ITT_date_first_idex_2007 != 0,
-                                                pmax(as.numeric(as.character(ITT_acces_rce_2007)), 
-                                                     as.numeric(as.character(ITT_date_first_idex_2007))), 0 ),
-           
-           interact_rce_idex_itt_2008 =  ifelse(ITT_acces_rce_2008 != 0 & ITT_date_first_idex_2008 != 0,
-                                                pmax(as.numeric(as.character(ITT_acces_rce_2008)), 
-                                                     as.numeric(as.character(ITT_date_first_idex_2008))), 0 ),
-           
-           interact_rce_idex_itt_2009 =  ifelse(ITT_acces_rce_2009 != 0 & ITT_date_first_idex_2009 != 0,
-                                                pmax(as.numeric(as.character(ITT_acces_rce_2009)), 
-                                                     as.numeric(as.character(ITT_date_first_idex_2009))), 0 )
-           
-           
-  )]
+  .[, min_cnrs := ifelse(!is.na(min_cnrs),min_cnrs, 0)]
 
 fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg_au_level_trt.csv" )
 rm(ds)
@@ -180,10 +142,10 @@ df_reg <- sample_df_reg %>%
           has_pub = as.numeric(publications_raw >0)
   )] %>%
   .[, inst_set_2007 := paste( ifelse(year == 2007, inst_id_set, ''), ''), by = 'author_id'] %>%
-  .[, ":="(acces_rce = ifelse(is.na(acces_rce), 0, acces_rce),
-           date_first_idex = ifelse(is.na(date_first_idex), 0, date_first_idex),
-           fusion_date = ifelse(is.na(fusion_date), 0, fusion_date),
-           interact_rce_idex = ifelse(is.na(interact_rce_idex), 0, interact_rce_idex),
+  .[, ":="(acces_rce = ifelse(is.na(acces_rce), 0, as.integer(acces_rce)),
+           date_first_idex = ifelse(is.na(date_first_idex), 0, as.integer(date_first_idex)),
+           fusion_date = ifelse(is.na(fusion_date), 0, as.integer(fusion_date)),
+           interact_rce_idex = ifelse(is.na(interact_rce_idex), 0, as.integer(interact_rce_idex)),
            
            treatment = case_when(interact_rce_idex!=0 ~"interact_rce_idex",
                           acces_rce!=0 ~"acces_rce",
@@ -215,14 +177,24 @@ gc()
 
 set.seed(1)
 auth <- unique(df_reg$author_id)
-keep <- sample(auth, length(auth) * 0.05)
+keep <- sample(auth, length(auth) * 0.2)
 
 list_est <- list()
-for(treat in c('acces_rce','date_first_idex','interact_rce_idex')){
-  
-  d_sep <- df_reg[treatment %in% c("control", treat) & author_id %in% keep]
+
+for(treat in c('acces_rce','date_first_idex','interact_rce_idex'
+               )){
+  start_time <- Sys.time()
+  d_sep <- df_reg[treatment %in% c("control", treat) & author_id %in% keep
+                  ] %>%
+    .[, ":="(entry_cohort = as.factor(entry_cohort),
+             domain = as.factor(domain),
+             pub_n_tile = as.factor(pub_n_tile),
+             cit_n_tile = as.factor(cit_n_tile),
+             inst_set_2007 = as.factor(inst_set_2007)
+             
+             )] %>% .[entry_year %in% 1985:2003]
   list_est[[treat]] <- etwfe(
-    fml    = citations_raw ~ entry_year + field + pub_n_tile,
+    fml    = publications_raw ~ entry_cohort + pub_n_tile + domain + cit_n_tile,
     tvar   = "year",
     gvar   = treat,
     data   = d_sep,
@@ -230,10 +202,22 @@ for(treat in c('acces_rce','date_first_idex','interact_rce_idex')){
     gref   = 0,
     cgroup = "never",
     family = "poisson",
-    vcov   = ~ inst_set_2007
+    vcov   = ~ author_id
   )
+  print(Sys.time()- start_time)
+  
+  start_time <- Sys.time()
+  
+  event_study <- emfx(list_est[[treat]], type = "event")
+  print(plot(event_study))
+  print(Sys.time()- start_time)
   
 }
+
+table(d_sep$entry_cohort, d_sep$entry_year)
+
+emfx(list_est$acces_rce, type = "event", vcov =FALSE)
+
 lapply(list_est, emfx, type = "event")     # event study
 plot(emfx(list_est$acces_rce, type = "event", compress = TRUE))
 plot(emfx(list_est$date_first_idex, type = "event", compress = TRUE))
