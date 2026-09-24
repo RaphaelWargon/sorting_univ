@@ -39,7 +39,7 @@ ds <- open_dataset(inputpath) %>%
     last_year-entry_year >2
     & entry_year >=1965 
     #& year >= 2003
-    #& entry_year <=2003
+    & entry_year <=2003
     & !(is.na(field))&!is.na(city) & !is.na(type) 
   )%>% select(-c(inst_set_this_year, merged_inst_set_this_year))
 
@@ -72,10 +72,11 @@ ds <- ds %>%
 
 
 gc()
+selection_period = 2000:2002
 
 sample_df <- ds %>%
   ## without the brits
-  .[country == "FR" & year >= 2003] %>%
+ #  .[country == "FR" & year >= 2003] %>%
   #### Checking that there are enough observations for each individual or author :
   .[, ':='(n_inst_id_sample = n_distinct(inst_id)), by = 'author_id'] %>%
   .[, ':='(n_authors_w_several_inst = n_distinct(ifelse(n_inst_id_sample >1, author_id, 0)),
@@ -91,11 +92,13 @@ sample_df <- ds %>%
   .[, ':='(n_obs_au = .N), by = "author_id"]%>%
   .[, ':='(n_au_inst_id_field_y = .N), by = c('inst_id', 'field','year')] %>%
   .[, min_n_au_inst_id_field_y := min(n_au_inst_id_field_y), by = c('inst_id', "field")]%>%
-  .[, pub_04_07 := sum(as.numeric(year > 2004 & year <= 2007) * publications_raw ), by = 'author_id'] %>%
- # .[pub_04_07 >=2] %>%
+  .[, ':='(pub_selection = sum(as.numeric(year %in% selection_period)*publications_raw),
+           cit_selection = sum(as.numeric(year %in% selection_period)*citations_raw)
+  ), by= 'author_id'] %>%
+   .[pub_selection >=2] %>%
   .[, n_lt := n_distinct(author_id), by = c('inst_id','field','year')] %>%
   .[, inst_id_field := paste0(inst_id, '_', field)] %>%
-  .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
+ # .[, fusion_date := fifelse(fusion_date =="2023", "0", as.character(fusion_date))] %>%
   .[ , ':='(fusion_date = as.factor(fusion_date),
             date_first_idex = as.factor(date_first_idex),
             acces_rce = as.factor(acces_rce),
@@ -104,8 +107,8 @@ sample_df <- ds %>%
 gc()
 rm(ds)
 gc()
-length(unique(sample_df$author_id)) #384019
-nrow(unique(sample_df[, list(inst_id, field)])) #40400
+length(unique(sample_df$author_id)) #89722
+nrow(unique(sample_df[, list(inst_id, field)])) #50603
 
 
 ggplot(unique(sample_df[, list(author_id, n_obs_au,entry_year)]))+geom_density(aes(x=n_obs_au, group = entry_year,color = entry_year))
@@ -150,21 +153,26 @@ gc()
 sample_df_reg <- merge(sample_df_reg, cities %>% .[, city:=LIBELLE], by ='city', allow.cartesian = TRUE)%>%
   .[!is.na(LIBELLE)]
 
-outcomes <- c('publications_raw', 'publications',
-              'citations_raw','citations',
-              'nr_source_top_5pct_raw', 'nr_source_top_5pct',
-              'nr_source_top_10pct_raw', 'nr_source_top_10pct',
-              'nr_source_top_20pct_raw', 'nr_source_top_20pct',
-              'nr_source_mid_40pct_raw', 'nr_source_mid_40pct',
-              'nr_source_btm_50pct_raw', 'nr_source_btm_50pct',
+outcomes <- c('publications_raw', 
+              'citations_raw',
+              'nr_source_top_5pct_raw', 
+              'nr_source_top_10pct_raw',
+              'nr_source_top_20pct_raw',
+              'nr_source_mid_40pct_raw',
+              'nr_source_btm_50pct_raw',
               colnames(sample_df_reg)[str_detect(colnames(sample_df_reg), "new")]
 )
+outcomes_wins <- ifelse(
+  grepl('raw', outcomes),
+  gsub('raw', 'wins', outcomes),
+  paste0(outcomes, '_wins')
+)
 
-sample_df_reg <-sample_df_reg %>%   .[, (outcomes) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes] %>%
+sample_df_reg <-sample_df_reg %>%    .[, (outcomes_wins) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes] %>%
   .[, ':='(entry_cohort = floor(entry_year/5)*5) ]
 
-fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
-sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg.csv" )
+fwrite(sample_df_reg, "D:\\panel_fr_res\\data\\sample_df_reg_new.csv" )
+sample_df_reg <- fread( "D:\\panel_fr_res\\data\\sample_df_reg_new.csv" )
 
 
 units_univ <- unique(sample_df_reg[, .(size_2003 = mean(size_2003),
