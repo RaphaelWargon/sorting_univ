@@ -177,12 +177,22 @@ df_reg <- sample_df_reg %>%
                           .default = 'control')
   )
   ] %>%
-  .[!(acces_rce %in% 2013:2015) & !(date_first_idex %in% c(2013,2014))
-    & !(interact_rce_idex %in% c(2013,2014))
-     #& (fusion_date <=2020)
+  .[!(acces_rce %in% 2013:2015)
     & (ever_in_idex_annulee ==0)
-  ]
-df_reg  %>% .[, list(author_id)] %>% distinct() %>% count() #69143
+  ] %>%
+  .[date_first_idex == 0 | acces_rce != 0] %>%
+  .[, treatment := case_when(acces_rce != 0 & date_first_idex == 0 ~ 'acces_rce_plain',
+                             acces_rce != 0 & date_first_idex <= 2012 ~ 'first_wave_idex',
+                             acces_rce != 0  ~ 'second_wave_idex',
+                             .default = 'control'
+  ) ] %>%
+  .[, acces_rce:=as.integer(acces_rce)] %>%
+  .[, ':='(second_wave_idex = ifelse(treatment == 'second_wave_idex', acces_rce,0),
+           first_wave_idex = ifelse(treatment == 'first_wave_idex', acces_rce,0),
+           acces_rce_plain = ifelse(treatment == 'acces_rce_plain', acces_rce,0))] 
+  
+df_reg  %>% .[, list(author_id)] %>% distinct() %>% count() #66771
+table(unique(df_reg[, list(idn, treatment)])$treatment)
 gc()
 
 df_reg %>%
@@ -215,8 +225,61 @@ for(field in all_fields){
 outcomes_to_keep <- c('publications_wins', 'citations_wins','total_new_phrase_comb_reuse_wins','nr_source_top_5pct_wins', 'nr_source_top_10pct_wins',
                       'new_phrase_comb_reuse','publications_raw','citations_raw')
 
-for(treat in c('acces_rce','date_first_idex',
-               'interact_rce_idex'
+list_est_together <- list()
+for(outcome in outcomes_to_keep){
+    
+    cols_to_keep <- c( outcome, "idn", "year_n", "inst_set_2007", 
+                       "treatment", controls, field_dummies)
+    
+    
+    print(paste0('Estimating for outcome: ', outcome))
+    start_time_est_outcome <- Sys.time()
+    list_est_together[[outcome]] <- list()
+    
+    es_stag <- did::att_gt(yname = outcome,
+                           tname = 'year_n',
+                           idname = 'idn',
+                           gname = "acces_rce",
+                           data = df_reg 
+                           ,xformla = as.formula(paste0('~',
+                                                        paste0(c(controls, field_dummies), collapse = '+')))
+                           ,control_group = 'notyettreated',clustervars = 'inst_set_2007'
+    )
+    
+    list_est_together[[outcome]]$regression <- es_stag
+    
+    print(paste0("Finished the estimation for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    
+    x_lim <- c(min(df_reg$year)-min(es_stag$group),  max(df_reg$year)-max(es_stag$group))
+    
+    start_time_plot <- Sys.time()
+    es_aggte_dyn <- aggte(es_stag, type = 'dynamic', na.rm = TRUE, 
+                          min_e = x_lim[1], max_e = x_lim[2])
+    list_est_together[[outcome]]$aggte_dyn <- es_aggte_dyn
+    plot <- ggdid(es_aggte_dyn)
+    plot_print <- plot + scale_colour_manual(values = c("black",'black'))+ 
+      geom_vline(xintercept = -0.5, colour = 'firebrick')+
+      theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[outcome]]) + labs(title='')
+    print(plot_print)
+    list_est_together[[outcome]]$plot <- plot_print
+    
+    print(paste0("Finished the plot for ", outcome, ' in:'))
+    print(Sys.time()-start_time_plot)
+    
+    print(paste0("Finished for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    
+    gc()
+}
+
+
+
+
+
+
+for(treat in c('acces_rce_plain','first_wave_idex',
+               'second_wave_idex'
 )){
   print(paste0("Computing the loop for: ", dict_vars[[treat]]))
   list_est[[treat]] <- list()
