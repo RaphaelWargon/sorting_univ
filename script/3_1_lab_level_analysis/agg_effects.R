@@ -1183,25 +1183,6 @@ make_stargazer_like_table_dt_v2 <- function(dt,
 }
 
 # ---- 3. usage ----
-dt_tab <- prep_res_main(res_main)
-
-# unique labels per outcome key (total and total_w collided before)
-var_map <- c(
-  total                 = "Researchers",
-  total_w               = "Women researchers",
-  share_women           = "Share of women",
-  total_foreign_entrant = "Foreign entrants"
-  # add the remaining outcome keys here
-)
-
-tex <- make_stargazer_like_table_dt(
-  dt_tab,
-  var_map     = var_map,
-  var_order   = unique(res_main$outcome),
-  treat_order = c("All"),          # then the other treatments, sorted
-  note        = "Callaway and Sant'Anna (2021) overall ATT. Standard errors clustered at the institution level.",
-  save_path   = "tables/table_main.tex"
-)
 
 idex_dict_dates = c(
   "idex_aix_marseille"= #https=//anr.fr/ProjetIA-11-IDEX-0001

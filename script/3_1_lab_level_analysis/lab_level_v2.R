@@ -29,8 +29,11 @@ wins_vars <- function(x, pct_level = 0.01){
 }
 
 inputpath <- "D:\\panel_fr_res\\data\\inst_field_year_panel_final.parquet"
+inputpath <- "C:\\Users\\rapha\\Desktop\\inst_field_year_panel_final.parquet"
 
 save_path = paste0("D:\\panel_fr_res\\results\\productivity_lab\\")
+save_path = paste0("C:\\Users\\rapha\\Desktop\\productivity_lab\\")
+
 if (!file.exists(save_path)){
   dir.create(save_path, recursive = TRUE)
 }
@@ -39,7 +42,7 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/agg_effects.
 ds <- open_dataset(inputpath) %>%
   filter(first_year_lab <= 2003  )
 nrow(ds)
-ds <- as.data.table(ds) #524838
+ds <- as.data.table(ds) #589357
 gc()
 
 ds <- ds %>%
@@ -116,7 +119,11 @@ df_reg <- df_reg %>%
            acces_rce_plain = ifelse(treatment == 'acces_rce_plain', acces_rce,0))] %>%
   .[, share_women := total_w_women/total_w] %>%
   .[, ecole := as.numeric(type_fr == 'École')]
-  
+
+fwrite(df_reg %>% select(-c(parent, topic_share, parent_id)), "C:\\Users\\rapha\\Desktop\\df_reg_inst_level.csv")
+rm(ds)
+gc()
+
 table(unique(df_reg[, list(idn, treatment)])$treatment)
 table(unique(df_reg[, list(idn, acces_rce)])$acces_rce)
 
@@ -265,6 +272,116 @@ list_est_together <- list()
 df_reg <- df_reg %>%
   .[, (outcomes_to_keep) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes_to_keep] 
 crit <- qnorm(0.975)   # 1.96 for a 95% CI; change to qnorm(0.95) for 90%
+
+
+# Desc stats --------------------------------------------------------------
+
+desc_stats_continuous_pre <- df_reg %>%
+  .[year <= 2007 & !is.na(acces_rce) ]%>%
+  .[, acces_rce := as.character(acces_rce)] %>%
+  .[, .( N = .N,
+         `Average # of researchers` = round(mean(total_w, na.rm = T), 1),
+         `Median # of researchers` =  round(median(total_w, na.rm = T), 1),
+         `Average # of foreign researchers` = round(mean(total_w_foreign_entrant, na.rm = T), 1),
+         `Median # of foreign researchers` =  round(median(total_w_foreign_entrant, na.rm = T), 1),
+         `Average # of publications` = round(mean(publications, na.rm = T), 1),
+         `Median # of publications` =  round(median(publications, na.rm = T), 1),
+         `Average # of citations` = round(mean(citations, na.rm = T), 1),
+         `Median # of citations` =  round(median(citations, na.rm = T), 1)
+         ), by = 'acces_rce'] %>%
+  arrange(acces_rce) %>%
+  rename(`Year of treatment`=acces_rce)
+
+stargazer(desc_stats_continuous_pre, summary = FALSE,rownames = FALSE, out = paste0(save_path, 'desc_inst_continuous.tex'))
+
+
+desc_stats_discrete <- unique(df_reg %>%
+  .[!is.na(acces_rce) ]%>%
+  .[, acces_rce := as.character(acces_rce)] %>%
+  .[, list(idn, domain, type, cnrs, city, acces_rce)] ) %>%
+  .[, .( `Life Sciences` = sum(as.numeric(domain == "1")),
+         `Social Sciences` = sum(as.numeric(domain == "2")),
+         `Physical Sciences` = sum(as.numeric(domain == "3")),
+         `Health Sciences` = sum(as.numeric(domain == "4")),
+         
+         `University` = sum(as.numeric(type == "education")),
+         `Laboratory` = sum(as.numeric(type == "facility")),
+         `Government` = sum(as.numeric(type == "government")),
+         `Non-profit` = sum(as.numeric(type == "nonprofit")),
+         `Archive and others` = sum(as.numeric(type %in% c("archive",'other'))),
+         
+         `Share in CNRS` = mean(cnrs),
+         `Share in Paris` = mean( as.numeric(city == 'Paris'))
+         
+         ), by = 'acces_rce'] %>%
+  arrange(acces_rce) %>%
+  rename(`Year of treatment`=acces_rce)
+desc_stats_domain <- desc_stats_discrete %>% select(`Year of treatment`,`Life Sciences`
+                               ,`Social Sciences`
+                               ,`Physical Sciences`
+                               ,`Health Sciences`) %>% as.data.frame()
+stargazer(desc_stats_domain
+          , summary = FALSE, rownames = FALSE, out = paste0(save_path, 'desc_inst_domain.tex'))
+
+
+desc_stats_discrete <- desc_stats_discrete %>% select(-c(`Life Sciences`
+                                                    ,`Social Sciences`
+                                                    ,`Physical Sciences`
+                                                    ,`Health Sciences`)) %>% as.data.frame()
+stargazer(desc_stats_discrete
+          , summary = FALSE, rownames = FALSE, out = paste0(save_path, 'desc_inst_discrete.tex'))
+
+
+p <- ggplot(df_reg %>% .[, treat := as.factor(acces_rce!=0)]%>% .[!is.na(treat)] %>%
+         .[, lapply(.SD, mean, na.rm =T), by = c('treat', 'year'), .SDcols = c('total_w')]) +
+  geom_line(aes(x = year, y = total_w, color = treat))+
+  scale_color_manual(values = c(`FALSE` = 'black', `TRUE` = 'firebrick4'),
+                     labels = c(`FALSE` = 'Control', `TRUE` = 'Treated'))+
+  geom_vline(aes(xintercept = 2007), linetype = 'dashed')+
+  theme_bw()+theme(legend.title = element_blank()) + xlab('Year')+ylab(dict_vars[["total_w"]]) + labs(title='')+
+  ylim(0,38)
+p
+ggsave(plot = p, filename = file.path(save_path, 'total_w_desc.png'), width = 6, height = 4)
+
+
+
+p <- ggplot(df_reg %>% .[, treat := as.factor(acces_rce!=0)]%>% .[!is.na(treat)] %>%
+              .[, lapply(.SD, mean, na.rm =T), by = c('treat', 'year'), .SDcols = c('total_w_foreign_entrant')]) +
+  geom_line(aes(x = year, y = total_w_foreign_entrant, color = treat))+
+  scale_color_manual(values = c(`FALSE` = 'black', `TRUE` = 'firebrick4'),
+                     labels = c(`FALSE` = 'Control', `TRUE` = 'Treated'))+
+  geom_vline(aes(xintercept = 2007), linetype = 'dashed')+
+  theme_bw()+theme(legend.title = element_blank()) + xlab('Year')+ylab(dict_vars[["total_w_foreign_entrant"]]) + labs(title='')+
+  ylim(0,38)
+p
+ggsave(plot = p, filename = file.path(save_path, 'total_w_foreign_entrant_desc.png'), width = 6, height = 4)
+
+
+p <- ggplot(df_reg %>% .[, treat := as.factor(acces_rce!=0)]%>% .[!is.na(treat)] %>%
+              .[, lapply(.SD, mean, na.rm =T), by = c('treat', 'year'), .SDcols = c('publications')]) +
+  geom_line(aes(x = year, y = publications, color = treat))+
+  scale_color_manual(values = c(`FALSE` = 'black', `TRUE` = 'firebrick4'),
+                     labels = c(`FALSE` = 'Control', `TRUE` = 'Treated'))+
+  geom_vline(aes(xintercept = 2007), linetype = 'dashed')+
+  theme_bw()+theme(legend.title = element_blank()) + xlab('Year')+ylab(dict_vars[["publications"]]) + labs(title='')
+p
+ggsave(plot = p, filename = file.path(save_path, 'publications_desc.png'), width = 6, height = 4)
+
+
+
+p <- ggplot(df_reg %>% .[, treat := as.factor(acces_rce!=0)]%>% .[!is.na(treat)] %>%
+              .[, lapply(.SD, mean, na.rm =T), by = c('treat', 'year'), .SDcols = c('citations')]) +
+  geom_line(aes(x = year, y = citations, color = treat))+
+  scale_color_manual(values = c(`FALSE` = 'black', `TRUE` = 'firebrick4'),
+                     labels = c(`FALSE` = 'Control', `TRUE` = 'Treated'))+
+  geom_vline(aes(xintercept = 2007), linetype = 'dashed')+
+  theme_bw()+theme(legend.title = element_blank()) + xlab('Year')+ylab(dict_vars[["citations"]]) + labs(title='')
+p
+ggsave(plot = p, filename = file.path(save_path, 'citations_desc.png'), width = 6, height = 4)
+
+
+# Main regression ---------------------------------------------------------
+
 
 treat <- 'acces_rce'
 for(outcome in outcomes_to_keep){
@@ -782,3 +899,465 @@ for(quartile in c('low','high')){
 }
 
 
+# Heterogeneity by domain --------------------------------------------------
+
+controls = c('type','cnrs','pub_n_tile'
+)
+gc()
+dict_vars <- c(dict_vars,
+               'd_1' = 'Life Sciences',
+               'd_2' = 'Social Sciences',
+               'd_3' = 'Physical Sciences',
+               'd_4' = 'Health Sciences'
+               )
+df_reg <- df_reg %>%
+  .[, (avg_outcomes) := lapply(.SD, function(x){ifelse(is.na(x) | x== Inf | x==-Inf, 0, x)}), .SDcols = avg_outcomes] %>%
+  .[, share_women := ifelse(is.na(share_women) | share_women == Inf | share_women == -Inf, 0, share_women)]
+list_est_by_domain <- list()
+for(domain_value in as.character(1:4) ){
+  print(paste0("Computing the loop for: ", dict_vars[[paste0('d_', domain_value)]]))
+  list_est_by_domain[[paste0('d_', domain_value)]] <- list()
+  
+  for(outcome in outcomes_to_keep){
+    
+    cols_to_keep <- c( outcome, "idn", "year_n", 'inst_id',
+                       "acces_rce", controls)
+    
+    
+    start_time_treat <- Sys.time()
+    d_sep <- df_reg[domain == domain_value] %>%
+      .[, ":="(entry_cohort = as.factor(entry_cohort),
+               domain = as.factor(domain),
+               pub_n_tile = as.factor(pub_n_tile),
+               cit_n_tile = as.factor(cit_n_tile),
+               acces_rce = as.numeric(acces_rce))] %>%
+      .[, ..cols_to_keep]
+    
+    
+    
+    print(paste0('Estimating for outcome: ', outcome))
+    start_time_est_outcome <- Sys.time()
+    list_est_by_domain[[paste0('d_', domain_value)]][[outcome]] <-list()
+    
+    es_stag <- did::att_gt(yname = outcome,
+                           tname = 'year_n',
+                           idname = 'idn',
+                           gname = "acces_rce",
+                           data = d_sep ,
+                           allow_unbalanced_panel = TRUE,
+                           ,xformla = as.formula(paste0('~',
+                                                        paste0(controls, collapse = '+')))
+                           ,control_group = 'notyettreated',clustervars = 'inst_id'
+    )
+    
+    list_est_by_domain[[paste0('d_', domain_value)]][[outcome]]$regression <- es_stag
+    
+    print(paste0("Finished the estimation for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    
+    x_lim <- c(min(d_sep$year)-min(es_stag$group),  max(d_sep$year)-max(es_stag$group))
+    
+    start_time_plot <- Sys.time()
+    es_aggte_dyn <- aggte(es_stag, type = 'dynamic', na.rm = TRUE, 
+                          min_e = x_lim[1], max_e = x_lim[2])
+    list_est_by_domain[[paste0('d_', domain_value)]][[outcome]]$aggte_dyn <- es_aggte_dyn
+    plot <- ggdid(es_aggte_dyn)
+    plot_print <- plot + scale_colour_manual(values = c("black",'black'))+ 
+      geom_vline(xintercept = -0.5, colour = 'firebrick')+
+      theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[outcome]]) + labs(title='')
+    print(plot_print + labs(title = paste0('Treatment: ', dict_vars[[paste0('d_', domain_value)]])))
+    ggsave(plot = plot_print, filename = file.path(save_path, "estimates", paste0(outcome, paste0('d_', domain_value), ".png")))
+    
+    list_est_by_domain[[paste0('d_', domain_value)]][[outcome]]$plot <- plot_print
+    
+    print(paste0("Finished the plot for ", outcome, ' in:'))
+    print(Sys.time()-start_time_plot)
+    
+    print(paste0("Finished for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    out <- list(regression = es_stag, aggte_dyn = es_aggte_dyn, plot = plot_print)
+    
+    saveRDS(out,
+            file.path(save_path, "estimates", paste0(outcome, '_', paste0('d_', domain_value), ".rds")),
+            compress = FALSE)
+    
+    rm(out, es_stag, es_aggte_dyn, plot, plot_print); gc()
+    
+    gc()
+  }
+  print(paste0("Finished the loop for ", dict_vars[[paste0('d_', domain_value)]], ' in:'))
+  print(Sys.time()-start_time_treat)
+}
+
+
+rows_het_d <- list()
+crit <- qnorm(0.975)   # 1.96 for a 95% CI; change to qnorm(0.95) for 90%
+get_stars <- function(p) {
+  if (is.na(p)) return("")
+  if (p < 0.01) return("***")
+  if (p < 0.05) return("**")
+  if (p < 0.10) return("*")
+  return("")
+}
+for(domain in names(list_est_by_domain)){ 
+  rows_het_d[[domain]] <- list()
+  for(outcome in names(list_est_by_domain[[domain]])){
+    print(domain)
+    print(outcome)
+    res  <- list_est_by_domain[[domain]][[outcome]]
+    es_stag <- res$regression
+    
+    agg_simple <- aggte(es_stag, type = 'simple')
+    att <- agg_simple$overall.att
+    se  <- agg_simple$overall.se
+    z   <- att / se
+    p   <- 2 * (1 - pnorm(abs(z)))
+    stars <- get_stars(p)
+    
+    ci_low  <- att - crit * se
+    ci_high <- att + crit * se
+    
+    d <- es_stag$DIDparams$data
+    n_units <- length(unique(d$idn))
+    
+    treated_ids <- unique(d$idn[d$acces_rce != 0])
+    pre_data <- d[d$idn %in% treated_ids & d$year_n <= 2007, ]
+    pre_mean <- mean(pre_data[[outcome]], na.rm = TRUE)
+    
+    rows_het_d[[domain]][[outcome]] <- data.frame(
+      Outcome      = dict_vars[[outcome]],
+      ATT          = round(att, 3),
+      Stars        = stars,
+      SE           = round(se, 3),
+      CI_low       = round(ci_low, 3),
+      CI_high      = round(ci_high, 3),
+      CI           = sprintf("[%.3f, %.3f]", ci_low, ci_high),  # ready for a table
+      PreTreatMean = round(pre_mean, 3),
+      N_units      = n_units,
+      stringsAsFactors = FALSE
+    )
+  }
+}
+
+res_het <- rbindlist(
+  lapply(names(rows_het_d), function(tr) {
+    rbindlist(rows_het_d[[tr]], idcol = "outcome")[, domain := dict_vars[[tr]]]
+  })
+)
+
+fwrite(res_het, file.path(save_path, 'results_by_domain.csv'))
+for(o in unique(res_het$outcome)){
+  p <- ggplot(res_het %>% .[outcome == o])+
+    geom_point(aes(x = domain, y = ATT)) +
+    geom_errorbar(aes(x=domain, ymin=CI_low,ymax=CI_high))+
+    geom_hline(yintercept = 0, colour = 'grey10')+
+    theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[o]]) + labs(title='')
+  
+  print(p)
+  
+}
+
+res_het <- res_het %>%
+  .[, `:=`(
+    est    = ATT,
+    std    = SE,
+    pvalue = 2 * pnorm(-abs(ATT / SE)),
+    var    = outcome,          # technical key; labels come from var_map
+    ctrl   = paste0(controls, collapse = '+'),
+    n_obs  = N_units,
+    pre_mean = PreTreatMean
+  )]
+
+make_stargazer_like_table_dt_v2(res_het %>% .[, treat := domain],
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy per domain on the number of researchers in treated institutions per domain and per category: all (1), researchers who first published abroad (2), in the past 5 years (3), between 5 to 15 years prior to each year (4), and above 15 years (5), the number of researchers whose last publication was recorded this year (6) and the share of women (7). Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Each researcher with n>1 affiliations is counted as 1/n researcher at each affiliation. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(est_path, 'att_mobility_lab_level_by_domain.tex' ),
+                                var_map = dict_vars,
+                                treat_map = dict_vars,
+                                var_order = c('total_w','total_w_foreign_entrant', 'total_w_from_t_company', 'exits_w','share_women'),
+                                treat_order = c('Life Sciences', 'Social Sciences', 'Physical Sciences', 'Health Sciences'),
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+
+
+make_stargazer_like_table_dt_v2(res_het %>% .[, treat := domain],
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy per domain for treated institutions on total publications (1), average publications (2), total citations (3), average citations (4), total publications in the 5\\% most cited journals (5), average publications in the top 5\\% most cited journals (6), number of new phrase combinations weighted by reuse (7) and average number of new phrase combinations weighted by reuse (8) of researchers affiliated with the institution. Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(est_path, 'att_productivity_domain.tex' ),
+                                var_map = dict_vars,
+                                treat_map = dict_vars,
+                                var_order = c('publications','avg_publications', 'citations', 'avg_citations','nr_source_top_5pct','avg_nr_source_top_5pct','new_phrase_comb_reuse','avg_new_phrase_comb_reuse'),
+                                treat_order = c('Life Sciences', 'Social Sciences', 'Physical Sciences', 'Health Sciences'),
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+
+# Heterogeneity by cit_tile -----------------------------------------------
+
+
+controls = c('type','cnrs','pub_n_tile','domain'
+)
+gc()
+dict_vars <- c(dict_vars,
+               'c_1' = 'Q1',
+               'c_2' = 'Q2',
+               'c_3' = 'Q3',
+               'c_4' = 'Q4'
+)
+df_reg <- df_reg %>%
+  .[, (avg_outcomes) := lapply(.SD, function(x){ifelse(is.na(x) | x== Inf | x==-Inf, 0, x)}), .SDcols = avg_outcomes] %>%
+  .[, share_women := ifelse(is.na(share_women) | share_women == Inf | share_women == -Inf, 0, share_women)]
+list_est_by_cit_n_tile <- list()
+for(cit_n_tile_value in as.character(1:4) ){
+  print(paste0("Computing the loop for: ", dict_vars[[paste0('c_', cit_n_tile_value)]]))
+  list_est_by_cit_n_tile[[paste0('c_', cit_n_tile_value)]] <- list()
+  
+  for(outcome in outcomes_to_keep){
+    
+    cols_to_keep <- c( outcome, "idn", "year_n", 'inst_id',
+                       "acces_rce", controls)
+    
+    
+    start_time_treat <- Sys.time()
+    d_sep <- df_reg[cit_n_tile == cit_n_tile_value] %>%
+      .[, ":="(entry_cohort = as.factor(entry_cohort),
+               cit_n_tile = as.factor(cit_n_tile),
+               pub_n_tile = as.factor(pub_n_tile),
+               domain = as.factor(domain),
+               acces_rce = as.numeric(acces_rce))] %>%
+      .[, ..cols_to_keep]
+    
+    
+    
+    print(paste0('Estimating for outcome: ', outcome))
+    start_time_est_outcome <- Sys.time()
+    list_est_by_cit_n_tile[[paste0('c_', cit_n_tile_value)]][[outcome]] <-list()
+    
+    es_stag <- did::att_gt(yname = outcome,
+                           tname = 'year_n',
+                           idname = 'idn',
+                           gname = "acces_rce",
+                           data = d_sep ,
+                           allow_unbalanced_panel = TRUE,
+                           ,xformla = as.formula(paste0('~',
+                                                        paste0(controls, collapse = '+')))
+                           ,control_group = 'notyettreated',clustervars = 'inst_id'
+    )
+    
+    list_est_by_cit_n_tile[[paste0('c_', cit_n_tile_value)]][[outcome]]$regression <- es_stag
+    
+    print(paste0("Finished the estimation for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    
+    x_lim <- c(min(d_sep$year)-min(es_stag$group),  max(d_sep$year)-max(es_stag$group))
+    
+    start_time_plot <- Sys.time()
+    es_aggte_dyn <- aggte(es_stag, type = 'dynamic', na.rm = TRUE, 
+                          min_e = x_lim[1], max_e = x_lim[2])
+    list_est_by_cit_n_tile[[paste0('c_', cit_n_tile_value)]][[outcome]]$aggte_dyn <- es_aggte_dyn
+    plot <- ggdid(es_aggte_dyn)
+    plot_print <- plot + scale_colour_manual(values = c("black",'black'))+ 
+      geom_vline(xintercept = -0.5, colour = 'firebrick')+
+      theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[outcome]]) + labs(title='')
+    print(plot_print + labs(title = paste0('Treatment: ', dict_vars[[paste0('c_', cit_n_tile_value)]])))
+    ggsave(plot = plot_print, filename = file.path(save_path, "estimates", paste0(outcome, paste0('c_', cit_n_tile_value), ".png")))
+    
+    list_est_by_cit_n_tile[[paste0('c_', cit_n_tile_value)]][[outcome]]$plot <- plot_print
+    
+    print(paste0("Finished the plot for ", outcome, ' in:'))
+    print(Sys.time()-start_time_plot)
+    
+    print(paste0("Finished for ", outcome, ' in:'))
+    print(Sys.time()-start_time_est_outcome)
+    out <- list(regression = es_stag, aggte_dyn = es_aggte_dyn, plot = plot_print)
+    
+    saveRDS(out,
+            file.path(save_path, "estimates", paste0(outcome, '_', paste0('c_', cit_n_tile_value), ".rds")),
+            compress = FALSE)
+    
+    rm(out, es_stag, es_aggte_dyn, plot, plot_print); gc()
+    
+    gc()
+  }
+  print(paste0("Finished the loop for ", dict_vars[[paste0('c_', cit_n_tile_value)]], ' in:'))
+  print(Sys.time()-start_time_treat)
+}
+
+
+rows_het_d <- list()
+crit <- qnorm(0.975)   # 1.96 for a 95% CI; change to qnorm(0.95) for 90%
+get_stars <- function(p) {
+  if (is.na(p)) return("")
+  if (p < 0.01) return("***")
+  if (p < 0.05) return("**")
+  if (p < 0.10) return("*")
+  return("")
+}
+for(cit_n_tile in names(list_est_by_cit_n_tile)){ 
+  rows_het_d[[cit_n_tile]] <- list()
+  for(outcome in names(list_est_by_cit_n_tile[[cit_n_tile]])){
+    print(cit_n_tile)
+    print(outcome)
+    res  <- list_est_by_cit_n_tile[[cit_n_tile]][[outcome]]
+    es_stag <- res$regression
+    
+    agg_simple <- aggte(es_stag, type = 'simple')
+    att <- agg_simple$overall.att
+    se  <- agg_simple$overall.se
+    z   <- att / se
+    p   <- 2 * (1 - pnorm(abs(z)))
+    stars <- get_stars(p)
+    
+    ci_low  <- att - crit * se
+    ci_high <- att + crit * se
+    
+    d <- es_stag$DIDparams$data
+    n_units <- length(unique(d$idn))
+    
+    treated_ids <- unique(d$idn[d$acces_rce != 0])
+    pre_data <- d[d$idn %in% treated_ids & d$year_n <= 2007, ]
+    pre_mean <- mean(pre_data[[outcome]], na.rm = TRUE)
+    
+    rows_het_d[[cit_n_tile]][[outcome]] <- data.frame(
+      Outcome      = dict_vars[[outcome]],
+      ATT          = round(att, 3),
+      Stars        = stars,
+      SE           = round(se, 3),
+      CI_low       = round(ci_low, 3),
+      CI_high      = round(ci_high, 3),
+      CI           = sprintf("[%.3f, %.3f]", ci_low, ci_high),  # ready for a table
+      PreTreatMean = round(pre_mean, 3),
+      N_units      = n_units,
+      stringsAsFactors = FALSE
+    )
+  }
+}
+
+
+# Never-treated only ------------------------------------------------------
+df_reg <- df_reg %>% .[, acces_rce := as.numeric(acces_rce)]
+list_est_nt <- list()
+treat <- 'acces_rce'
+for(outcome in outcomes_to_keep){
+  
+  
+  start_time_treat <- Sys.time()
+  
+  
+  print(paste0('Estimating for outcome: ', outcome))
+  start_time_est_outcome <- Sys.time()
+  list_est_nt[[outcome]] <- list()
+  
+  es_stag <- did::att_gt(yname = outcome,
+                         tname = 'year_n',
+                         idname = 'idn',
+                         gname = "acces_rce",
+                         data = df_reg ,
+                         base_period = "universal"
+                         ,xformla = as.formula(paste0('~',
+                                                      paste0(controls, collapse = '+')))
+                         ,control_group = 'nevertreated',clustervars = 'inst_id'
+  )
+  
+  list_est_nt[[outcome]]$regression <- es_stag
+  
+  print(paste0("Finished the estimation for ", outcome, ' in:'))
+  print(Sys.time()-start_time_est_outcome)
+  
+  x_lim <- c(min(df_reg$year)-min(es_stag$group),  max(df_reg$year)-max(es_stag$group))
+  
+  start_time_plot <- Sys.time()
+  es_aggte_dyn <- aggte(es_stag, type = 'dynamic', na.rm = TRUE, 
+                        min_e = x_lim[1], max_e = x_lim[2])
+  list_est_nt[[outcome]]$aggte_dyn <- es_aggte_dyn
+  plot <- ggdid(es_aggte_dyn)
+  plot_print <- plot + scale_colour_manual(values = c("black",'black'))+ 
+    geom_vline(xintercept = -0.5, colour = 'firebrick')+
+    theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[outcome]]) + labs(title='')
+  print(plot_print + labs(title = paste0('Treatment: ', dict_vars[[treat]])))
+  
+  list_est_nt[[outcome]]$plot <- plot_print
+  
+  print(paste0("Finished the plot for ", outcome, ' in:'))
+  print(Sys.time()-start_time_plot)
+  
+  print(paste0("Finished for ", outcome, ' in:'))
+  print(Sys.time()-start_time_est_outcome)
+  out <- list(regression = es_stag, aggte_dyn = es_aggte_dyn, plot = plot_print)
+  
+  saveRDS(out,
+          file.path(save_path, "estimates", paste0(outcome, '_never_treated_only', ".rds")),
+          compress = FALSE)
+  
+  rm(out, es_stag, es_aggte_dyn, plot, plot_print); gc()
+  
+  gc()
+}
+
+
+# No controls ------------------------------------------------------
+df_reg <- df_reg %>% .[, acces_rce := as.numeric(acces_rce)]
+list_est_nc <- list()
+treat <- 'acces_rce'
+for(outcome in outcomes_to_keep){
+  
+  
+  start_time_treat <- Sys.time()
+  
+  
+  print(paste0('Estimating for outcome: ', outcome))
+  start_time_est_outcome <- Sys.time()
+  list_est_nc[[outcome]] <- list()
+  
+  es_stag <- did::att_gt(yname = outcome,
+                         tname = 'year_n',
+                         idname = 'idn',
+                         gname = "acces_rce",
+                         data = df_reg ,
+                         base_period = "universal"
+                         ,control_group = 'notyettreated',clustervars = 'inst_id'
+  )
+  
+  list_est_nc[[outcome]]$regression <- es_stag
+  
+  print(paste0("Finished the estimation for ", outcome, ' in:'))
+  print(Sys.time()-start_time_est_outcome)
+  
+  x_lim <- c(min(df_reg$year)-min(es_stag$group),  max(df_reg$year)-max(es_stag$group))
+  
+  start_time_plot <- Sys.time()
+  es_aggte_dyn <- aggte(es_stag, type = 'dynamic', na.rm = TRUE, 
+                        min_e = x_lim[1], max_e = x_lim[2])
+  list_est_nc[[outcome]]$aggte_dyn <- es_aggte_dyn
+  plot <- ggdid(es_aggte_dyn)
+  plot_print <- plot + scale_colour_manual(values = c("black",'black'))+ 
+    geom_vline(xintercept = -0.5, colour = 'firebrick')+
+    theme_bw()+theme(legend.position = 'none') + xlab('Time to treatment')+ylab(dict_vars[[outcome]]) + labs(title='')
+  print(plot_print + labs(title = paste0('Treatment: ', dict_vars[[treat]])))
+  
+  list_est_nc[[outcome]]$plot <- plot_print
+  
+  print(paste0("Finished the plot for ", outcome, ' in:'))
+  print(Sys.time()-start_time_plot)
+  
+  print(paste0("Finished for ", outcome, ' in:'))
+  print(Sys.time()-start_time_est_outcome)
+  out <- list(regression = es_stag, aggte_dyn = es_aggte_dyn, plot = plot_print)
+  
+  saveRDS(out,
+          file.path(save_path, "estimates", paste0(outcome, '_no_controls', ".rds")),
+          compress = FALSE)
+  
+  rm(out, es_stag, es_aggte_dyn, plot, plot_print); gc()
+  
+  gc()
+}
+
+  
