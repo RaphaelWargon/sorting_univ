@@ -124,6 +124,8 @@ fwrite(df_reg %>% select(-c(parent, topic_share, parent_id)), "C:\\Users\\rapha\
 rm(ds)
 gc()
 
+df_reg <- fread("C:\\Users\\rapha\\Desktop\\df_reg_inst_level.csv")
+
 table(unique(df_reg[, list(idn, treatment)])$treatment)
 table(unique(df_reg[, list(idn, acces_rce)])$acces_rce)
 
@@ -266,12 +268,12 @@ outcomes_to_keep <- c('total','total_w',
                       'nr_source_top_5pct','avg_nr_source_top_5pct',
                       'new_phrase_comb_reuse','avg_new_phrase_comb_reuse'
                       )
+crit <- qnorm(0.975)   # 1.96 for a 95% CI; change to qnorm(0.95) for 90%
 
 list_est_together <- list()
 
 df_reg <- df_reg %>%
   .[, (outcomes_to_keep) := lapply(.SD, wins_vars, pct_level =0.01) , .SDcols = outcomes_to_keep] 
-crit <- qnorm(0.975)   # 1.96 for a 95% CI; change to qnorm(0.95) for 90%
 
 
 # Desc stats --------------------------------------------------------------
@@ -1302,6 +1304,111 @@ for(outcome in outcomes_to_keep){
 }
 
 
+list_est_nt <- list()
+
+for(outcome in outcomes_to_keep){
+  print(outcome)
+  list_est_nt[[outcome]] <- readRDS(file.path(save_path, "estimates", paste0(outcome, '_never_treated_only', ".rds")))
+  
+  gc()
+}
+
+
+rows_nt <- list()
+
+get_stars <- function(p) {
+  if (is.na(p)) return("")
+  if (p < 0.01) return("***")
+  if (p < 0.05) return("**")
+  if (p < 0.10) return("*")
+  return("")
+}
+for(outcome in names(list_est_nt)){
+  print(outcome)
+  res  <- list_est_nt[[outcome]]
+  es_stag <- res$regression
+  
+  agg_simple <- aggte(es_stag, type = 'simple',na.rm = TRUE)
+  att <- agg_simple$overall.att
+  se  <- agg_simple$overall.se
+  z   <- att / se
+  p   <- 2 * (1 - pnorm(abs(z)))
+  stars <- get_stars(p)
+  ci_low  <- att - crit * se
+  ci_high <- att + crit * se
+  
+  # data underlying this att_gt run
+  d <- es_stag$DIDparams$data
+  
+  # number of units (all units in the estimation sample)
+  n_units <- length(unique(d$idn))
+  
+  # pre-treatment average of the outcome, among eventually-treated units,
+  # in periods before their treatment year (treatment == 0 group timing var excluded)
+  treated_ids <- unique(d$idn[d$acces_rce != 0])
+  pre_data <- d[d$idn %in% treated_ids & d$year_n <= 2007, ]
+  pre_mean <- mean(pre_data[[outcome]], na.rm = TRUE)
+  
+  rows_nt[[outcome]] <- data.frame(
+    Outcome      = dict_vars[[outcome]],
+    ATT          = round(att, 3),
+    Stars        = stars,
+    SE           = round(se, 3),
+    CI_low       = round(ci_low, 3),
+    CI_high      = round(ci_high, 3),
+    CI           = sprintf("[%.3f, %.3f]", ci_low, ci_high),  # ready for a table
+    PreTreatMean = round(pre_mean, 3),
+    N_units      = n_units,
+    stringsAsFactors = FALSE
+  )
+}
+res_main_nt <- rbindlist(rows_nt, idcol = "outcome")[, treat := 'All']
+
+fwrite(res_main_nt, file = file.path(est_path, paste0('att_nt_', paste0(controls, collapse = '__'), '.csv') ))
+res_main_nt <- fread(file.path(est_path, paste0('att_nt_', paste0(controls, collapse = '__'), '.csv') )) %>%
+  .[, `:=`(
+    est    = ATT,
+    std    = SE,
+    pvalue = 2 * pnorm(-abs(ATT / SE)),
+    var    = outcome,          # technical key; labels come from var_map
+    ctrl   = paste0(controls, collapse = '+'),
+    n_obs  = N_units,
+    pre_mean = PreTreatMean
+  )]
+
+
+make_stargazer_like_table_dt_v2(res_main_nt,
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy on the number of researchers in treated institutions per domain and per category: all (1), researchers who first published abroad (2), in the past 5 years (3), between 5 to 15 years prior to each year (4), and above 15 years (5), the number of researchers whose last publication was recorded this year (6) and the share of women (7). Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Each researcher with n>1 affiliations is counted as 1/n researcher at each affiliation. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(save_path, 'att_mobility_lab_level_nevertreated.tex' ),
+                                var_map = dict_vars,
+                                treat_map = NULL,
+                                var_order = c('total_w','total_w_foreign_entrant', 'total_w_junior','total_w_medium','total_w_senior', 'exits_w','share_women'),
+                                treat_order = NULL,
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+make_stargazer_like_table_dt_v2(res_main_nt,
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy for treated institutions on total publications (1), average publications (2), total citations (3), average citations (4), total publications in the 5\\% most cited journals (5), average publications in the top 5\\% most cited journals (6), number of new phrase combinations weighted by reuse (7) and average number of new phrase combinations weighted by reuse (8) of researchers affiliated with the institution. Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(est_path, 'att_productivity_nevertreated.tex' ),
+                                var_map = dict_vars,
+                                treat_map = NULL,
+                                var_order = c('publications','avg_publications', 'citations', 'avg_citations','nr_source_top_5pct','avg_nr_source_top_5pct','new_phrase_comb_reuse','avg_new_phrase_comb_reuse'),
+                                treat_order = NULL,
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+ggsave(plot = list_est_nt$total_w$plot, filename = file.path(est_path, 'total_w_nt.png'), width = 6, height = 4)
+ggsave(plot = list_est_nt$publications$plot, filename = file.path(est_path, 'publications_nt.png'), width = 6, height = 4)
+
+
 # No controls ------------------------------------------------------
 df_reg <- df_reg %>% .[, acces_rce := as.numeric(acces_rce)]
 list_est_nc <- list()
@@ -1360,4 +1467,106 @@ for(outcome in outcomes_to_keep){
   gc()
 }
 
+list_est_nc <- list()
+
+for(outcome in outcomes_to_keep){
+  list_est_nc[[outcome]] <- readRDS(file.path(save_path, "estimates", paste0(outcome, '_no_controls', ".rds")))
   
+  gc()
+}
+
+
+rows_nc <- list()
+
+get_stars <- function(p) {
+  if (is.na(p)) return("")
+  if (p < 0.01) return("***")
+  if (p < 0.05) return("**")
+  if (p < 0.10) return("*")
+  return("")
+}
+for(outcome in names(list_est_nc)){
+  print(outcome)
+  res  <- list_est_nc[[outcome]]
+  es_stag <- res$regression
+  
+  agg_simple <- aggte(es_stag, type = 'simple',na.rm = TRUE)
+  att <- agg_simple$overall.att
+  se  <- agg_simple$overall.se
+  z   <- att / se
+  p   <- 2 * (1 - pnorm(abs(z)))
+  stars <- get_stars(p)
+  ci_low  <- att - crit * se
+  ci_high <- att + crit * se
+  
+  # data underlying this att_gt run
+  d <- es_stag$DIDparams$data
+  
+  # number of units (all units in the estimation sample)
+  n_units <- length(unique(d$idn))
+  
+  # pre-treatment average of the outcome, among eventually-treated units,
+  # in periods before their treatment year (treatment == 0 group timing var excluded)
+  treated_ids <- unique(d$idn[d$acces_rce != 0])
+  pre_data <- d[d$idn %in% treated_ids & d$year_n <= 2007, ]
+  pre_mean <- mean(pre_data[[outcome]], na.rm = TRUE)
+  
+  rows_nc[[outcome]] <- data.frame(
+    Outcome      = dict_vars[[outcome]],
+    ATT          = round(att, 3),
+    Stars        = stars,
+    SE           = round(se, 3),
+    CI_low       = round(ci_low, 3),
+    CI_high      = round(ci_high, 3),
+    CI           = sprintf("[%.3f, %.3f]", ci_low, ci_high),  # ready for a table
+    PreTreatMean = round(pre_mean, 3),
+    N_units      = n_units,
+    stringsAsFactors = FALSE
+  )
+}
+res_main_nc <- rbindlist(rows_nc, idcol = "outcome")[, treat := 'All']
+
+fwrite(res_main_nc, file = file.path(est_path, paste0('att_nc_', paste0("", collapse = '__'), '.csv') ))
+res_main_nc <- fread(file.path(est_path, paste0('att_nc_', paste0("", collapse = '__'), '.csv') )) %>%
+  .[, `:=`(
+    est    = ATT,
+    std    = SE,
+    pvalue = 2 * pnorm(-abs(ATT / SE)),
+    var    = outcome,          # technical key; labels come from var_map
+    ctrl   = "",
+    n_obs  = N_units,
+    pre_mean = PreTreatMean
+  )]
+
+
+make_stargazer_like_table_dt_v2(res_main_nc,
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy on the number of researchers in treated institutions per domain and per category: all (1), researchers who first published abroad (2), in the past 5 years (3), between 5 to 15 years prior to each year (4), and above 15 years (5), the number of researchers whose last publication was recorded this year (6) and the share of women (7). Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Each researcher with n>1 affiliations is counted as 1/n researcher at each affiliation. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(save_path, 'att_mobility_lab_level_nocontrols.tex' ),
+                                var_map = dict_vars,
+                                treat_map = NULL,
+                                var_order = c('total_w','total_w_foreign_entrant', 'total_w_junior','total_w_medium','total_w_senior', 'exits_w','share_women'),
+                                treat_order = NULL,
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+make_stargazer_like_table_dt_v2(res_main_nc,
+                                digits = 3,
+                                note = 'This table presents the Average Treatment Effect on the Treated of administrative autonomy for treated institutions on total publications (1), average publications (2), total citations (3), average citations (4), total publications in the 5\\% most cited journals (5), average publications in the top 5\\% most cited journals (6), number of new phrase combinations weighted by reuse (7) and average number of new phrase combinations weighted by reuse (8) of researchers affiliated with the institution. Results are obtained by estimation of \\cite{callaway2021difference}, using the never-treated and not-yet-treated units as controls. Variables are winsorized at the 1\\% level.',
+                                save_path = file.path(est_path, 'att_productivity_nocontrols.tex' ),
+                                var_map = dict_vars,
+                                treat_map = NULL,
+                                var_order = c('publications','avg_publications', 'citations', 'avg_citations','nr_source_top_5pct','avg_nr_source_top_5pct','new_phrase_comb_reuse','avg_new_phrase_comb_reuse'),
+                                treat_order = NULL,
+                                drop_unlisted_vars = TRUE,
+                                pre_mean_label = "Pre-treatment mean",
+                                n_label = "N (units)",
+                                add_stars = TRUE
+)
+
+ggsave(plot = list_est_nc$total_w$plot, filename = file.path(est_path, 'total_w_no_controls.png'), width = 6, height = 4)
+ggsave(plot = list_est_nc$publications$plot, filename = file.path(est_path, 'publications_no_controls.png'), width = 6, height = 4)
+
